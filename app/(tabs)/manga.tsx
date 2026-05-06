@@ -1,48 +1,49 @@
 import React, { useState } from 'react'
 import {
   View, Text, FlatList, Pressable,
-  StyleSheet, ActivityIndicator, ScrollView, StatusBar,
+  StyleSheet, ActivityIndicator, StatusBar,
 } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import { Ionicons } from '@expo/vector-icons'
 import { useQuery } from '@tanstack/react-query'
 import MediaCard, { MediaItem } from '@/components/MediaCard'
 import { getTrending } from '@/services/anilist'
+import { searchManga } from '@/services/mangadex'
 
-const ACCENT = '#7C5CFC'
-
-const FILTERS = ['Trending', 'Popular', 'Top Rated', 'Airing'] as const
+const ACCENT = '#16A881'
+const FILTERS = ['Trending', 'Popular', 'Top Rated'] as const
 type Filter = typeof FILTERS[number]
 
 const SORT_MAP: Record<Filter, string> = {
-  Trending:   'TRENDING_DESC',
-  Popular:    'POPULARITY_DESC',
-  'Top Rated':'SCORE_DESC',
-  Airing:     'TRENDING_DESC',
+  Trending:    'TRENDING_DESC',
+  Popular:     'POPULARITY_DESC',
+  'Top Rated': 'SCORE_DESC',
 }
 
-function normalise(item: any): MediaItem {
+// Normalise Anilist manga response
+function normaliseAnilist(item: any): MediaItem {
   return {
     id:         item.id,
     title:      item.title?.english ?? item.title?.romaji ?? 'Unknown',
     coverImage: item.coverImage?.large ?? '',
-    type:       'anime',
+    type:       'manga',
     score:      item.averageScore,
-    episodes:   item.episodes,
+    chapters:   item.chapters,
     genres:     item.genres ?? [],
     raw:        item,
   }
 }
 
-export default function AnimeScreen() {
+export default function MangaScreen() {
   const [filter, setFilter] = useState<Filter>('Trending')
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ['anime', filter],
-    queryFn: () => getTrending('ANIME', SORT_MAP[filter]),
+    queryKey: ['manga', filter],
+    queryFn: () => getTrending('MANGA', SORT_MAP[filter]),
   })
 
-  const items: MediaItem[] = (data ?? []).map(normalise)
+  const items: MediaItem[] = (data ?? []).map(normaliseAnilist)
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -51,10 +52,19 @@ export default function AnimeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerSub}>Welcome to</Text>
-          <Text style={styles.headerTitle}>Anime</Text>
+          <Text style={styles.headerSub}>Browse</Text>
+          <Text style={styles.headerTitle}>Manga</Text>
         </View>
-        <View style={[styles.accentDot, { backgroundColor: ACCENT }]} />
+        <Pressable
+          onPress={() => setViewMode(v => v === 'grid' ? 'list' : 'grid')}
+          style={styles.viewBtn}
+        >
+          <Ionicons
+            name={viewMode === 'grid' ? 'list-outline' : 'grid-outline'}
+            size={20}
+            color="rgba(255,255,255,0.6)"
+          />
+        </Pressable>
       </View>
 
       {/* Filter pills */}
@@ -80,11 +90,11 @@ export default function AnimeScreen() {
         }}
       />
 
-      {/* Grid */}
+      {/* Content */}
       {isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={ACCENT} size="large" />
-          <Text style={[styles.loadingText, { color: ACCENT }]}>Loading anime…</Text>
+          <Text style={[styles.loadingText, { color: ACCENT }]}>Loading manga…</Text>
         </View>
       ) : isError ? (
         <View style={styles.center}>
@@ -93,13 +103,18 @@ export default function AnimeScreen() {
         </View>
       ) : (
         <FlatList
+          key={viewMode}
           data={items}
           keyExtractor={i => String(i.id)}
-          numColumns={2}
+          numColumns={viewMode === 'grid' ? 2 : 1}
           contentContainerStyle={styles.grid}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => (
-            <MediaCard item={item} variant="portrait" style={styles.cardWrap} />
+            <MediaCard
+              item={item}
+              variant={viewMode === 'grid' ? 'portrait' : 'landscape'}
+              style={viewMode === 'grid' ? styles.gridCard : styles.listCard}
+            />
           )}
           ListEmptyComponent={
             <View style={styles.center}>
@@ -120,7 +135,11 @@ const styles = StyleSheet.create({
   },
   headerSub: { color: 'rgba(255,255,255,0.4)', fontSize: 12, letterSpacing: 0.3 },
   headerTitle: { color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
-  accentDot: { width: 10, height: 10, borderRadius: 5 },
+  viewBtn: {
+    width: 36, height: 36, borderRadius: 10,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    alignItems: 'center', justifyContent: 'center',
+  },
   filtersRow: { flexGrow: 0, marginBottom: 12 },
   filtersContainer: { paddingHorizontal: 16, gap: 8 },
   pill: {
@@ -130,7 +149,8 @@ const styles = StyleSheet.create({
   },
   pillText: { color: 'rgba(255,255,255,0.5)', fontSize: 13 },
   grid: { paddingHorizontal: 12, paddingBottom: 100 },
-  cardWrap: { flex: 1, margin: 6 },
+  gridCard: { flex: 1, margin: 6 },
+  listCard: { marginHorizontal: 12 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, paddingBottom: 60 },
   loadingText: { fontSize: 14, fontWeight: '500' },
   errorText: { color: 'rgba(255,255,255,0.4)', fontSize: 14 },
