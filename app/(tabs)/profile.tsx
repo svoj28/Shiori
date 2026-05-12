@@ -1,217 +1,769 @@
-import React, { useState } from 'react'
+import MediaCard from "@/components/MediaCard";
 import {
-  View, Text, Pressable, StyleSheet,
-  ScrollView, StatusBar, Switch,
-} from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { Ionicons } from '@expo/vector-icons'
-import { LinearGradient } from 'expo-linear-gradient'
+  TRACKER_STATUSES_DISPLAY,
+  useTracker,
+  type TrackerStatus,
+} from "@/contexts/tracker-context";
+import { Ionicons } from "@expo/vector-icons";
+import { useRouter } from "expo-router";
+import React from "react";
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-const ACCENT = '#EC4899'
+const ACCENT = "#EC4899";
+const LIBRARY_TABS = ["Status", "Wishlist", "Collections", "All"] as const;
+type LibraryTab = (typeof LIBRARY_TABS)[number];
 
-// ─── Stat box ─────────────────────────────────────────────────────────────────
+const STATUS_COLORS: Record<TrackerStatus, string> = {
+  None: "#64748B",
+  Completed: "#22C55E",
+  Rewatching: "#A78BFA",
+  Watching: "#38BDF8",
+  Planning: "#F59E0B",
+  Considering: "#F97316",
+  Paused: "#EF4444",
+};
 
-function StatBox({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <View style={styles.statBox}>
-      <Text style={[styles.statValue, { color }]}>{value}</Text>
-      <Text style={styles.statLabel}>{label}</Text>
-    </View>
-  )
-}
-
-// ─── Setting row ──────────────────────────────────────────────────────────────
-
-function SettingRow({
-  icon, label, value, onPress, toggle, toggleValue, accent,
+function SummaryTile({
+  label,
+  value,
+  accent,
 }: {
-  icon: string
-  label: string
-  value?: string
-  onPress?: () => void
-  toggle?: boolean
-  toggleValue?: boolean
-  accent?: string
+  label: string;
+  value: string;
+  accent: string;
 }) {
   return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.settingRow, pressed && !toggle && styles.pressed]}
-      disabled={toggle}
-    >
-      <View style={[styles.settingIconWrap, { backgroundColor: (accent ?? '#6B7280') + '22' }]}>
-        <Ionicons name={icon as any} size={17} color={accent ?? '#6B7280'} />
-      </View>
-      <Text style={styles.settingLabel}>{label}</Text>
-      <View style={styles.settingRight}>
-        {toggle ? (
-          <Switch
-            value={toggleValue}
-            onValueChange={onPress as any}
-            trackColor={{ false: 'rgba(255,255,255,0.1)', true: ACCENT }}
-            thumbColor="#fff"
-          />
-        ) : (
-          <>
-            {value && <Text style={styles.settingValue}>{value}</Text>}
-            <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.25)" />
-          </>
-        )}
-      </View>
-    </Pressable>
-  )
+    <View style={styles.summaryTile}>
+      <Text style={[styles.summaryValue, { color: accent }]}>{value}</Text>
+      <Text style={styles.summaryLabel}>{label}</Text>
+    </View>
+  );
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+function SectionTitle({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <Text style={styles.sectionTitle}>{title}</Text>
+      {subtitle && <Text style={styles.sectionSubtitle}>{subtitle}</Text>}
+    </View>
+  );
+}
 
 export default function ProfileScreen() {
-  const [notifications, setNotifications] = useState(true)
-  const [darkMode,      setDarkMode]      = useState(true)
-  const [autoPlay,      setAutoPlay]      = useState(false)
+  const tracker = useTracker();
+  const router = useRouter();
+  const [activeTab, setActiveTab] = React.useState<LibraryTab>("Status");
+  const [selectedStatus, setSelectedStatus] =
+    React.useState<TrackerStatus | null>(null);
+  const [newCollectionName, setNewCollectionName] = React.useState("");
+  const [pendingDelete, setPendingDelete] = React.useState<string | null>(null);
+  const [toastMsg, setToastMsg] = React.useState<string | null>(null);
+  const toastTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMsg(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToastMsg(null), 2500);
+  };
+
+  const visibleEntries =
+    activeTab === "Wishlist"
+      ? tracker.wishlistEntries
+      : activeTab === "All"
+        ? tracker.entries
+        : activeTab === "Status" && selectedStatus
+          ? tracker.entries.filter((entry) => entry.status === selectedStatus)
+          : tracker.entries.filter((entry) => entry.status !== "None");
+
+  const createCollection = () => {
+    const name = newCollectionName.trim();
+    if (!name) return;
+    tracker.createCollection(name);
+    setNewCollectionName("");
+    showToast(`"${name}" created`);
+  };
+
+  const confirmDelete = (name: string) => {
+    setPendingDelete(name);
+  };
+
+  const handleDeleteConfirmed = () => {
+    if (!pendingDelete) return;
+    tracker.deleteCollection(pendingDelete);
+    showToast(`"${pendingDelete}" deleted`);
+    setPendingDelete(null);
+  };
 
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <SafeAreaView style={styles.safe} edges={["top"]}>
       <StatusBar barStyle="light-content" />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
 
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.headerTitle}>Profile</Text>
+      {/* Toast */}
+      {toastMsg && (
+        <View style={styles.toast} pointerEvents="none">
+          <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+          <Text style={styles.toastText}>{toastMsg}</Text>
         </View>
+      )}
 
-        {/* Avatar card */}
-        <LinearGradient
-          colors={['#1E1B4B', '#0C0C18']}
-          style={styles.avatarCard}
-        >
-          <View style={[styles.avatarRing, { borderColor: ACCENT }]}>
-            <View style={styles.avatarInner}>
-              <Ionicons name="person" size={40} color={ACCENT} />
+      {/* Delete confirmation modal */}
+      {pendingDelete && (
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalIconWrap}>
+              <Ionicons name="trash-outline" size={24} color="#EF4444" />
+            </View>
+            <Text style={styles.modalTitle}>Delete collection?</Text>
+            <Text style={styles.modalBody}>
+              <Text style={{ color: "#fff", fontWeight: "700" }}>
+                "{pendingDelete}"
+              </Text>
+              {" "}will be permanently removed. Your tracked titles won't be
+              affected.
+            </Text>
+            <View style={styles.modalActions}>
+              <Pressable
+                onPress={() => setPendingDelete(null)}
+                style={[styles.modalBtn, styles.modalBtnCancel]}
+              >
+                <Text style={styles.modalBtnCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={handleDeleteConfirmed}
+                style={[styles.modalBtn, styles.modalBtnDelete]}
+              >
+                <Text style={styles.modalBtnDeleteText}>Delete</Text>
+              </Pressable>
             </View>
           </View>
-          <Text style={styles.userName}>Shiori User</Text>
-          <Text style={styles.userHandle}>@shiori · Member since 2024</Text>
+        </View>
+      )}
 
-          {/* Stats */}
-          <View style={styles.statsRow}>
-            <StatBox label="Anime"     value="48"  color="#7C5CFC" />
-            <View style={styles.statDivider} />
-            <StatBox label="Manga"     value="23"  color="#16A881" />
-            <View style={styles.statDivider} />
-            <StatBox label="Novels"    value="11"  color="#D4860A" />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scroll}
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <Text style={styles.headerEyebrow}>Library</Text>
+            <Text style={styles.headerTitle}>Tracker dashboard</Text>
           </View>
-        </LinearGradient>
-
-        {/* Library section */}
-        <Text style={styles.sectionTitle}>My Library</Text>
-        <View style={styles.card}>
-          <SettingRow icon="bookmark"       label="Bookmarked"     value="82 items"  accent="#7C5CFC" onPress={() => {}} />
-          <SettingRow icon="checkmark-done" label="Completed"      value="36 items"  accent="#22C55E" onPress={() => {}} />
-          <SettingRow icon="time-outline"   label="In Progress"    value="14 items"  accent="#EAB308" onPress={() => {}} />
-          <SettingRow icon="close-circle"   label="Dropped"        value="4 items"   accent="#EF4444" onPress={() => {}} />
+          <View style={styles.headerIconWrap}>
+            <Ionicons name="albums" size={20} color={ACCENT} />
+          </View>
         </View>
 
-        {/* Preferences */}
-        <Text style={styles.sectionTitle}>Preferences</Text>
-        <View style={styles.card}>
-          <SettingRow
-            icon="notifications" label="Notifications"
-            toggle toggleValue={notifications}
-            onPress={() => setNotifications(v => !v)} accent={ACCENT}
-          />
-          <SettingRow
-            icon="moon" label="Dark Mode"
-            toggle toggleValue={darkMode}
-            onPress={() => setDarkMode(v => !v)} accent="#6366F1"
-          />
-          <SettingRow
-            icon="play-forward" label="Auto-play Next"
-            toggle toggleValue={autoPlay}
-            onPress={() => setAutoPlay(v => !v)} accent="#7C5CFC"
-          />
-          <SettingRow icon="language" label="Language" value="English" accent="#06B6D4" onPress={() => {}} />
+        {/* Hero card */}
+        <View style={styles.heroCard}>
+          <View style={styles.tabRow}>
+            {LIBRARY_TABS.map((tab) => {
+              const active = activeTab === tab;
+              return (
+                <Pressable
+                  key={tab}
+                  onPress={() => {
+                    setActiveTab(tab);
+                    setSelectedStatus(null);
+                  }}
+                  style={[
+                    styles.tabPill,
+                    active && { backgroundColor: ACCENT, borderColor: ACCENT },
+                  ]}
+                >
+                  <Text
+                    style={[styles.tabText, active && styles.tabTextActive]}
+                  >
+                    {tab}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.summaryRow}>
+            <SummaryTile
+              label="Tracked"
+              value={String(tracker.totalTracked)}
+              accent={ACCENT}
+            />
+            <SummaryTile
+              label="Wishlisted"
+              value={String(tracker.wishlistEntries.length)}
+              accent="#F472B6"
+            />
+            <SummaryTile
+              label="Collections"
+              value={String(tracker.collections.length)}
+              accent="#06B6D4"
+            />
+          </View>
+
+          <View style={styles.statusGrid}>
+            {TRACKER_STATUSES_DISPLAY.map((status) => {
+              const isSelected =
+                activeTab === "Status" && selectedStatus === status;
+              return (
+                <Pressable
+                  key={status}
+                  onPress={() => setSelectedStatus(isSelected ? null : status)}
+                  style={[
+                    styles.statusTile,
+                    {
+                      borderColor:
+                        STATUS_COLORS[status] + (isSelected ? "CC" : "55"),
+                      backgroundColor:
+                        STATUS_COLORS[status] + (isSelected ? "25" : "15"),
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusCount,
+                      {
+                        color: STATUS_COLORS[status],
+                        fontWeight: isSelected ? "700" : "600",
+                      },
+                    ]}
+                  >
+                    {tracker.statusCounts[status]}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.statusLabel,
+                      {
+                        color: STATUS_COLORS[status],
+                        fontWeight: isSelected ? "700" : "500",
+                      },
+                    ]}
+                  >
+                    {status}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
-        {/* Account */}
-        <Text style={styles.sectionTitle}>Account</Text>
-        <View style={styles.card}>
-          <SettingRow icon="person-circle" label="Edit Profile"    accent="#A78BFA"  onPress={() => {}} />
-          <SettingRow icon="shield"        label="Privacy"         accent="#22C55E"  onPress={() => {}} />
-          <SettingRow icon="help-circle"   label="Help & Support"  accent="#06B6D4"  onPress={() => {}} />
-          <SettingRow icon="information-circle" label="About SHIORI" accent="#6B7280" onPress={() => {}} />
-        </View>
+        {/* Tab content */}
+        {activeTab === "Collections" ? (
+          <>
+            <SectionTitle
+              title="Collections"
+              subtitle="Create shelves and organize your library"
+            />
+            <View style={[styles.inputRow, { marginBottom: 16 }]}>
+              <TextInput
+                placeholder="New collection name…"
+                placeholderTextColor="rgba(255,255,255,0.30)"
+                value={newCollectionName}
+                onChangeText={setNewCollectionName}
+                onSubmitEditing={createCollection}
+                returnKeyType="done"
+                style={styles.collectionInput}
+              />
+              <Pressable
+                onPress={createCollection}
+                disabled={!newCollectionName.trim()}
+                style={[
+                  styles.createButton,
+                  {
+                    backgroundColor: newCollectionName.trim()
+                      ? ACCENT
+                      : "rgba(255,255,255,0.08)",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name="add"
+                  size={20}
+                  color={
+                    newCollectionName.trim() ? "#fff" : "rgba(255,255,255,0.3)"
+                  }
+                />
+              </Pressable>
+            </View>
 
-        {/* Sign out */}
-        <Pressable style={styles.signOutBtn} onPress={() => {}}>
-          <Ionicons name="log-out-outline" size={18} color="#EF4444" />
-          <Text style={styles.signOutText}>Sign Out</Text>
-        </Pressable>
+            {tracker.collections.length > 0 ? (
+              <View style={styles.collectionGrid}>
+                {tracker.collections.map((collection) => (
+                  <Pressable
+                    key={collection.name}
+                    style={({ pressed }) => [
+                      styles.collectionCard,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/collection",
+                        params: { name: collection.name },
+                      })
+                    }
+                  >
+                    <View style={styles.collectionTopRow}>
+                      <Text style={styles.collectionName} numberOfLines={1}>
+                        {collection.name}
+                      </Text>
+                      <View style={styles.collectionCountBadge}>
+                        <Text style={styles.collectionCountText}>
+                          {collection.items.length}
+                        </Text>
+                      </View>
+                    </View>
 
-        <View style={{ height: 40 }} />
+                    {collection.items.length > 0 ? (
+                      <Text style={styles.collectionHint} numberOfLines={2}>
+                        {collection.items
+                          .slice(0, 3)
+                          .map((item) => item.title)
+                          .join(" · ")}
+                      </Text>
+                    ) : (
+                      <Text style={styles.collectionEmpty}>No items yet</Text>
+                    )}
+
+                    <View style={styles.collectionFooter}>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={14}
+                        color="rgba(255,255,255,0.2)"
+                      />
+                      <Pressable
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          confirmDelete(collection.name);
+                        }}
+                        hitSlop={12}
+                        style={styles.deleteIconBtn}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={14}
+                          color="#EF4444"
+                        />
+                        <Text style={styles.deleteIconLabel}>Delete</Text>
+                      </Pressable>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyCard}>
+                <Ionicons
+                  name="albums-outline"
+                  size={28}
+                  color="rgba(255,255,255,0.18)"
+                  style={{ marginBottom: 8 }}
+                />
+                <Text style={styles.emptyTitle}>No collections yet</Text>
+                <Text style={styles.emptySub}>
+                  Type a name above and tap + to create your first shelf.
+                </Text>
+              </View>
+            )}
+          </>
+        ) : activeTab === "Wishlist" ? (
+          <>
+            <SectionTitle
+              title="Wishlist"
+              subtitle="Titles you want to get back to"
+            />
+            {tracker.wishlistEntries.length > 0 ? (
+              <FlatList
+                data={tracker.wishlistEntries.slice(0, 8)}
+                keyExtractor={(item) => `${item.type}-${item.id}`}
+                renderItem={({ item }) => (
+                  <MediaCard
+                    item={item}
+                    variant="landscape"
+                    style={styles.mediaRow}
+                  />
+                )}
+                scrollEnabled={false}
+              />
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No wishlist yet</Text>
+                <Text style={styles.emptySub}>
+                  Open a title and tap Add to wishlist to start collecting
+                  priorities.
+                </Text>
+              </View>
+            )}
+          </>
+        ) : activeTab === "Status" ? (
+          <>
+            <SectionTitle
+              title="Library"
+              subtitle="Your tracked titles by status"
+            />
+            {visibleEntries.length > 0 ? (
+              <FlatList
+                data={visibleEntries.slice(0, 8)}
+                keyExtractor={(item) => `${item.type}-${item.id}`}
+                renderItem={({ item }) => (
+                  <MediaCard
+                    item={item}
+                    variant="landscape"
+                    style={styles.mediaRow}
+                  />
+                )}
+                scrollEnabled={false}
+              />
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>No tracked titles</Text>
+                <Text style={styles.emptySub}>
+                  Add titles to your wishlist first, then choose a status to
+                  track them here.
+                </Text>
+              </View>
+            )}
+          </>
+        ) : (
+          <>
+            <SectionTitle
+              title="Recent activity"
+              subtitle="Latest updated entries"
+            />
+            {tracker.entries.length > 0 ? (
+              tracker.entries
+                .slice(0, 5)
+                .map((item) => (
+                  <MediaCard
+                    key={`${item.type}-${item.id}`}
+                    item={item}
+                    variant="landscape"
+                    style={styles.mediaRow}
+                  />
+                ))
+            ) : (
+              <View style={styles.emptyCard}>
+                <Text style={styles.emptyTitle}>Nothing tracked yet</Text>
+                <Text style={styles.emptySub}>
+                  Tap any anime, manga, or light novel to create your first
+                  tracker entry.
+                </Text>
+              </View>
+            )}
+          </>
+        )}
+
+        <View style={{ height: 36 }} />
       </ScrollView>
     </SafeAreaView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: '#0C0C18' },
-  scroll: { paddingBottom: 20 },
+  safe: { flex: 1, backgroundColor: "#0C0C18" },
+  scroll: { paddingBottom: 24 },
 
-  header: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 12 },
-  headerTitle: { color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 14,
+  },
+  headerEyebrow: {
+    color: "rgba(255,255,255,0.42)",
+    fontSize: 12,
+    letterSpacing: 0.3,
+  },
+  headerTitle: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  headerIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-  avatarCard: {
-    marginHorizontal: 16, borderRadius: 20,
-    alignItems: 'center', paddingVertical: 28, paddingHorizontal: 20,
-    marginBottom: 24,
+  heroCard: {
+    marginHorizontal: 16,
+    borderRadius: 20,
+    padding: 16,
+    backgroundColor: "#141420",
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
   },
-  avatarRing: {
-    width: 90, height: 90, borderRadius: 45,
-    borderWidth: 2.5, alignItems: 'center', justifyContent: 'center',
-    marginBottom: 14,
+  tabRow: { flexDirection: "row", gap: 8, marginBottom: 14, flexWrap: "wrap" },
+  tabPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
   },
-  avatarInner: {
-    width: 80, height: 80, borderRadius: 40,
-    backgroundColor: 'rgba(236,72,153,0.1)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  userName: { color: '#fff', fontSize: 20, fontWeight: '700', marginBottom: 4 },
-  userHandle: { color: 'rgba(255,255,255,0.4)', fontSize: 12, marginBottom: 22 },
+  tabText: { color: "rgba(255,255,255,0.52)", fontSize: 12, fontWeight: "700" },
+  tabTextActive: { color: "#fff" },
 
-  statsRow: { flexDirection: 'row', alignItems: 'center', width: '100%', justifyContent: 'center' },
-  statBox: { flex: 1, alignItems: 'center', gap: 4 },
-  statValue: { fontSize: 22, fontWeight: '700' },
-  statLabel: { color: 'rgba(255,255,255,0.4)', fontSize: 11 },
-  statDivider: { width: 1, height: 36, backgroundColor: 'rgba(255,255,255,0.1)' },
+  summaryRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
+  summaryTile: {
+    flex: 1,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    alignItems: "center",
+    gap: 4,
+  },
+  summaryValue: { fontSize: 22, fontWeight: "800" },
+  summaryLabel: {
+    color: "rgba(255,255,255,0.44)",
+    fontSize: 11,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+  },
 
-  sectionTitle: {
-    color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: '600',
-    letterSpacing: 0.8, textTransform: 'uppercase',
-    marginHorizontal: 20, marginBottom: 8,
+  statusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  statusTile: {
+    width: "31%",
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    backgroundColor: "rgba(255,255,255,0.03)",
   },
-  card: {
-    marginHorizontal: 16, backgroundColor: '#141420',
-    borderRadius: 16, overflow: 'hidden', marginBottom: 20,
-  },
-  settingRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: 16, paddingVertical: 14,
-    borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.05)',
-  },
-  pressed: { backgroundColor: 'rgba(255,255,255,0.04)' },
-  settingIconWrap: {
-    width: 32, height: 32, borderRadius: 8,
-    alignItems: 'center', justifyContent: 'center', marginRight: 12,
-  },
-  settingLabel: { flex: 1, color: '#fff', fontSize: 14 },
-  settingRight: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  settingValue: { color: 'rgba(255,255,255,0.35)', fontSize: 13 },
+  statusCount: { fontSize: 20, fontWeight: "800" },
+  statusLabel: { fontSize: 11, fontWeight: "700", marginTop: 2 },
 
-  signOutBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
-    gap: 8, marginHorizontal: 16, paddingVertical: 14,
-    borderRadius: 14, borderWidth: 1, borderColor: 'rgba(239,68,68,0.3)',
-    backgroundColor: 'rgba(239,68,68,0.07)',
+  sectionHeader: { paddingHorizontal: 20, marginBottom: 10 },
+  sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
+  sectionSubtitle: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 12,
+    marginTop: 4,
   },
-  signOutText: { color: '#EF4444', fontSize: 14, fontWeight: '600' },
-})
+
+  mediaRow: { marginHorizontal: 16 },
+
+  emptyCard: {
+    marginHorizontal: 16,
+    backgroundColor: "#141420",
+    borderRadius: 16,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+    marginBottom: 16,
+    alignItems: "center",
+  },
+  emptyTitle: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
+  emptySub: { color: "rgba(255,255,255,0.38)", fontSize: 13, lineHeight: 19, textAlign: "center" },
+
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingHorizontal: 16,
+  },
+  collectionInput: {
+    flex: 1,
+    backgroundColor: "#141420",
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    color: "#fff",
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  createButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  collectionGrid: {
+    paddingHorizontal: 16,
+    gap: 10,
+    marginBottom: 6,
+  },
+  collectionCard: {
+    backgroundColor: "#141420",
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+    gap: 8,
+  },
+  collectionTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  collectionName: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    flex: 1,
+  },
+  collectionCountBadge: {
+    backgroundColor: "rgba(6,182,212,0.15)",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  collectionCountText: {
+    color: "#06B6D4",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  collectionHint: {
+    color: "rgba(255,255,255,0.35)",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  collectionEmpty: {
+    color: "rgba(255,255,255,0.20)",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
+  collectionFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 2,
+  },
+  deleteIconBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    borderRadius: 8,
+    backgroundColor: "rgba(239,68,68,0.08)",
+  },
+  deleteIconLabel: {
+    color: "#EF4444",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
+  modalOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  modalCard: {
+    marginHorizontal: 32,
+    backgroundColor: "#1A1A2E",
+    borderRadius: 20,
+    padding: 24,
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+  },
+  modalIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(239,68,68,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "800",
+    marginBottom: 8,
+  },
+  modalBody: {
+    color: "rgba(255,255,255,0.52)",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: "center",
+  },
+  modalBtnCancel: {
+    backgroundColor: "rgba(255,255,255,0.07)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.10)",
+  },
+  modalBtnCancelText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  modalBtnDelete: {
+    backgroundColor: "#EF4444",
+  },
+  modalBtnDeleteText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
+  toast: {
+    position: "absolute",
+    bottom: 90,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#1A1A2E",
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.08)",
+    zIndex: 200,
+  },
+  toastText: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+});

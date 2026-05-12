@@ -2,10 +2,19 @@ import { useAnimeSearch } from "@/hooks/useAnime";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useLightNovelSearch } from "@/hooks/useLightNovel";
 import { useMangaSearch } from "@/hooks/useManga";
+import {
+  ANIME_GENRES,
+  AnyGenre,
+  getByGenre,
+  MANGA_GENRES,
+  NOVEL_GENRES,
+  pickRandomGenres,
+} from "@/services/anilist"; // adjust path to your anilist service
 import { Ionicons } from "@expo/vector-icons";
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Keyboard,
   Platform,
@@ -37,6 +46,14 @@ const ACCENT: Record<FilterTab, string> = {
   lightnovel: "#D4860A",
 };
 
+// Genre pools per tab
+const GENRE_POOL: Record<FilterTab, readonly string[]> = {
+  all: Array.from(new Set([...ANIME_GENRES, ...MANGA_GENRES, ...NOVEL_GENRES])),
+  anime: ANIME_GENRES,
+  manga: MANGA_GENRES,
+  lightnovel: NOVEL_GENRES,
+};
+
 // ─── Normalise API shapes to MediaItem ───────────────────────────────────────
 
 function normaliseAnilist(item: any, type: MediaType): MediaItem {
@@ -53,49 +70,164 @@ function normaliseAnilist(item: any, type: MediaType): MediaItem {
   };
 }
 
-function normaliseMangaDex(item: any): MediaItem {
-  const attrs = item.attributes ?? {};
-  const title =
-    attrs.title?.en ?? Object.values(attrs.title ?? {})[0] ?? "Unknown";
-  const coverRel = item.relationships?.find((r: any) => r.type === "cover_art");
-  const filename = coverRel?.attributes?.fileName;
-  const cover = filename
-    ? `https://uploads.mangadex.org/covers/${item.id}/${filename}.256.jpg`
-    : "";
+function normaliseAnilistManga(item: any): MediaItem {
   return {
     id: item.id,
-    title: String(title),
-    coverImage: cover,
+    title: item.title?.english ?? item.title?.romaji ?? "Unknown",
+    coverImage: item.coverImage?.large ?? "",
     type: "manga",
-    chapters: attrs.lastChapter ? Number(attrs.lastChapter) : undefined,
-    genres: [],
+    score: item.averageScore ?? undefined,
+    chapters: item.chapters ?? undefined,
+    genres: item.genres ?? [],
     raw: item,
   };
 }
 
-function normaliseConsumet(item: any): MediaItem {
+function normaliseAnilistNovel(item: any): MediaItem {
   return {
-    id: item.id ?? item.title,
-    title: item.title ?? "Unknown",
-    coverImage: item.image ?? item.cover ?? "",
+    id: item.id,
+    title: item.title?.english ?? item.title?.romaji ?? item.title ?? "Unknown",
+    coverImage: item.coverImage?.large ?? item.coverImage?.extraLarge ?? "",
     type: "lightnovel",
+    score: item.averageScore ?? undefined,
+    chapters: item.chapters ?? undefined,
+    genres: item.genres ?? [],
     raw: item,
   };
+}
+
+// ─── Genre chip strip ─────────────────────────────────────────────────────────
+
+interface GenreStripProps {
+  genres: readonly string[];
+  selected: string[];
+  accent: string;
+  onToggle: (g: string) => void;
+  onClear: () => void;
+}
+
+function GenreStrip({ genres, selected, accent, onToggle, onClear }: GenreStripProps) {
+  return (
+    <View style={genreStyles.row}>
+      <FlatList
+        data={genres as string[]}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        keyExtractor={(g) => g}
+        contentContainerStyle={genreStyles.container}
+        ListHeaderComponent={
+          selected.length > 0 ? (
+            <Pressable onPress={onClear} style={[genreStyles.chip, genreStyles.clearChip]}>
+              <Ionicons name="close" size={11} color="#fff" style={{ marginRight: 3 }} />
+              <Text style={genreStyles.clearText}>Clear</Text>
+            </Pressable>
+          ) : null
+        }
+        renderItem={({ item: genre }) => {
+          const active = selected.includes(genre);
+          return (
+            <Pressable
+              onPress={() => onToggle(genre)}
+              style={[
+                genreStyles.chip,
+                active && { backgroundColor: accent + "30", borderColor: accent },
+              ]}
+            >
+              <Text style={[genreStyles.chipText, active && { color: accent, fontWeight: "600" }]}>
+                {genre}
+              </Text>
+            </Pressable>
+          );
+        }}
+      />
+    </View>
+  );
+}
+
+// ─── Randomizer button ────────────────────────────────────────────────────────
+
+interface RandomizerProps {
+  accent: string;
+  activeTab: FilterTab;
+  onRandomize: (genres: string[]) => void;
+  spinning: boolean;
+}
+
+function RandomizerButton({ accent, activeTab, onRandomize, spinning }: RandomizerProps) {
+  const spinAnim = useRef(new Animated.Value(0)).current;
+  const spin = spinAnim.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+
+  useEffect(() => {
+    if (spinning) {
+      Animated.loop(
+        Animated.timing(spinAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+      ).start();
+    } else {
+      spinAnim.stopAnimation();
+      spinAnim.setValue(0);
+    }
+  }, [spinning]);
+
+  const pool = GENRE_POOL[activeTab];
+
+  return (
+    <View style={randStyles.wrap}>
+      {/* Single random */}
+      <Pressable
+        onPress={() => onRandomize(pickRandomGenres(pool, 1))}
+        style={({ pressed }) => [
+          randStyles.btn,
+          { borderColor: accent + "55", backgroundColor: accent + "15" },
+          pressed && { opacity: 0.75 },
+        ]}
+      >
+        <Animated.View style={{ transform: [{ rotate: spin }] }}>
+          <Ionicons name="shuffle" size={14} color={accent} />
+        </Animated.View>
+        <Text style={[randStyles.btnText, { color: accent }]}>Random</Text>
+      </Pressable>
+
+      {/* Combo: 2–3 random genres */}
+      <Pressable
+        onPress={() => {
+          const count = Math.random() > 0.5 ? 2 : 3;
+          onRandomize(pickRandomGenres(pool, Math.min(count, pool.length)));
+        }}
+        style={({ pressed }) => [
+          randStyles.btn,
+          { borderColor: accent + "55", backgroundColor: accent + "15" },
+          pressed && { opacity: 0.75 },
+        ]}
+      >
+        <Ionicons name="git-merge-outline" size={14} color={accent} />
+        <Text style={[randStyles.btnText, { color: accent }]}>Mix</Text>
+      </Pressable>
+    </View>
+  );
 }
 
 // ─── Empty / placeholder states ───────────────────────────────────────────────
 
-function EmptyState({ query, active }: { query: string; active: FilterTab }) {
+function EmptyState({
+  query,
+  active,
+  genres,
+}: {
+  query: string;
+  active: FilterTab;
+  genres: string[];
+}) {
   const color = ACCENT[active];
+  const hasGenres = genres.length > 0;
   return (
     <View style={styles.emptyWrap}>
       <Ionicons
-        name="search-outline"
+        name={hasGenres ? "filter-outline" : "search-outline"}
         size={52}
         color={color}
         style={{ opacity: 0.4 }}
       />
-      {query.length > 0 ? (
+      {query.length > 0 || hasGenres ? (
         <>
           <Text style={styles.emptyTitle}>No results found</Text>
           <Text style={styles.emptySub}>Try a different title or filter</Text>
@@ -103,11 +235,33 @@ function EmptyState({ query, active }: { query: string; active: FilterTab }) {
       ) : (
         <>
           <Text style={styles.emptyTitle}>Search SHIORI</Text>
-          <Text style={styles.emptySub}>
-            Find anime, manga, and light novels
-          </Text>
+          <Text style={styles.emptySub}>Find anime, manga, and light novels</Text>
         </>
       )}
+    </View>
+  );
+}
+
+// ─── Genre badge header shown above results ───────────────────────────────────
+
+function GenreResultHeader({
+  genres,
+  accent,
+}: {
+  genres: string[];
+  accent: string;
+}) {
+  if (genres.length === 0) return null;
+  return (
+    <View style={headerStyles.wrap}>
+      <View style={headerStyles.inner}>
+        {genres.map((g) => (
+          <View key={g} style={[headerStyles.badge, { backgroundColor: accent + "25" }]}>
+            <Text style={[headerStyles.badgeText, { color: accent }]}>{g}</Text>
+          </View>
+        ))}
+      </View>
+      <Text style={headerStyles.sub}>Browsing by genre</Text>
     </View>
   );
 }
@@ -119,50 +273,130 @@ export default function ExploreScreen() {
   const [activeTab, setTab] = useState<FilterTab>("all");
   const [viewMode, setView] = useState<"grid" | "list">("grid");
 
+  // Genre state
+  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [genreResults, setGenreResults] = useState<MediaItem[]>([]);
+  const [genreLoading, setGenreLoading] = useState(false);
+  const [randSpinning, setRandSpinning] = useState(false);
+
   const debouncedQ = useDebounce(query, 400);
   const accent = ACCENT[activeTab];
 
-  // Fetch from all three sources in parallel; each hook is enabled only when
-  // we actually need it (matching active tab or "all")
+  // Fetch from all three sources in parallel
   const needsAnime = activeTab === "all" || activeTab === "anime";
   const needsManga = activeTab === "all" || activeTab === "manga";
   const needsLN = activeTab === "all" || activeTab === "lightnovel";
 
-  const animeQ = useAnimeSearch(needsAnime ? debouncedQ : "");
-  const mangaQ = useMangaSearch(needsManga ? debouncedQ : "");
-  const lnQ = useLightNovelSearch(needsLN ? debouncedQ : "");
+  const animeQ = useAnimeSearch(needsAnime && !selectedGenres.length ? debouncedQ : "");
+  const mangaQ = useMangaSearch(needsManga && !selectedGenres.length ? debouncedQ : "");
+  const lnQ = useLightNovelSearch(needsLN && !selectedGenres.length ? debouncedQ : "");
 
-  // Normalise and merge results
-  const results = useMemo<MediaItem[]>(() => {
+  // Normalise and merge search results
+  const searchResults = useMemo<MediaItem[]>(() => {
     const out: MediaItem[] = [];
-
-    if (needsAnime && animeQ.data) {
+    if (needsAnime && animeQ.data)
       animeQ.data.forEach((i: any) => out.push(normaliseAnilist(i, "anime")));
-    }
-    if (needsManga) {
-      if (mangaQ.data) {
-        // MangaDex returns raw objects
-        mangaQ.data.forEach((i: any) => out.push(normaliseMangaDex(i)));
-      }
-    }
-    if (needsLN && lnQ.data?.results) {
-      lnQ.data.results.forEach((i: any) => out.push(normaliseConsumet(i)));
-    }
-
+    if (needsManga && mangaQ.data)
+      mangaQ.data.forEach((i: any) => out.push(normaliseAnilistManga(i)));
+    if (needsLN && lnQ.data)
+      lnQ.data.forEach((i: any) => out.push(normaliseAnilistNovel(i)));
     return out;
   }, [animeQ.data, mangaQ.data, lnQ.data, needsAnime, needsManga, needsLN]);
 
-  const isLoading =
+  const isSearchLoading =
     (needsAnime && animeQ.isLoading) ||
     (needsManga && mangaQ.isLoading) ||
     (needsLN && lnQ.isLoading);
+
+  // ── Genre toggle ────────────────────────────────────────────────────────────
+  const toggleGenre = useCallback((genre: string) => {
+    setSelectedGenres((prev) =>
+      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre],
+    );
+  }, []);
+
+  const clearGenres = useCallback(() => {
+    setSelectedGenres([]);
+    setGenreResults([]);
+  }, []);
+
+  // ── Fetch by genre whenever selectedGenres changes ─────────────────────────
+  useEffect(() => {
+    if (selectedGenres.length === 0) {
+      setGenreResults([]);
+      return;
+    }
+
+    let cancelled = false;
+    setGenreLoading(true);
+
+    const fetches: Promise<MediaItem[]>[] = [];
+
+    if (activeTab === "all" || activeTab === "anime") {
+      fetches.push(
+        getByGenre("ANIME", selectedGenres).then((items: any[]) =>
+          items.map((i) => normaliseAnilist(i, "anime")),
+        ),
+      );
+    }
+    if (activeTab === "all" || activeTab === "manga") {
+      fetches.push(
+        getByGenre("MANGA", selectedGenres).then((items: any[]) =>
+          items.map((i) => normaliseAnilistManga(i)),
+        ),
+      );
+    }
+    if (activeTab === "all" || activeTab === "lightnovel") {
+      fetches.push(
+        getByGenre("MANGA", selectedGenres, "NOVEL").then((items: any[]) =>
+          items.map((i) => normaliseAnilistNovel(i)),
+        ),
+      );
+    }
+
+    Promise.all(fetches)
+      .then((chunks) => {
+        if (!cancelled) setGenreResults(chunks.flat());
+      })
+      .finally(() => {
+        if (!cancelled) setGenreLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedGenres, activeTab]);
+
+  // ── Randomizer ─────────────────────────────────────────────────────────────
+  const handleRandomize = useCallback(
+    (genres: string[]) => {
+      setRandSpinning(true);
+      setTimeout(() => setRandSpinning(false), 700);
+      setQuery("");
+      setSelectedGenres(genres);
+    },
+    [],
+  );
+
+  // ── What to display ─────────────────────────────────────────────────────────
+  const results = selectedGenres.length > 0 ? genreResults : searchResults;
+  const isLoading =
+    selectedGenres.length > 0
+      ? genreLoading
+      : isSearchLoading && debouncedQ.length > 1;
 
   const handleClear = useCallback(() => {
     setQuery("");
     Keyboard.dismiss();
   }, []);
 
-  // ── Render item (grid or list) ─────────────────────────────────────────────
+  const handleTabChange = useCallback((tab: FilterTab) => {
+    setTab(tab);
+    setSelectedGenres([]);
+    setGenreResults([]);
+  }, []);
+
+  // ── Render item ─────────────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item }: { item: MediaItem }) => (
       <MediaCard
@@ -182,9 +416,10 @@ export default function ExploreScreen() {
 
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Explore</Text>
-
-        {/* View toggle */}
+        <View>
+          <Text style={styles.headerEyebrow}>Search and track</Text>
+          <Text style={styles.headerTitle}>Discover</Text>
+        </View>
         <Pressable
           onPress={() => setView((v) => (v === "grid" ? "list" : "grid"))}
           style={styles.viewToggle}
@@ -207,10 +442,13 @@ export default function ExploreScreen() {
         />
         <TextInput
           style={styles.searchInput}
-          placeholder="Search titles…"
+          placeholder="Search titles to track…"
           placeholderTextColor="rgba(255,255,255,0.28)"
           value={query}
-          onChangeText={setQuery}
+          onChangeText={(t) => {
+            setQuery(t);
+            if (t.length > 0) clearGenres();
+          }}
           returnKeyType="search"
           autoCorrect={false}
           autoCapitalize="none"
@@ -218,11 +456,7 @@ export default function ExploreScreen() {
         />
         {query.length > 0 && (
           <Pressable onPress={handleClear} hitSlop={8}>
-            <Ionicons
-              name="close-circle"
-              size={16}
-              color="rgba(255,255,255,0.35)"
-            />
+            <Ionicons name="close-circle" size={16} color="rgba(255,255,255,0.35)" />
           </Pressable>
         )}
       </View>
@@ -239,7 +473,7 @@ export default function ExploreScreen() {
           const col = ACCENT[tab.key];
           return (
             <Pressable
-              onPress={() => setTab(tab.key)}
+              onPress={() => handleTabChange(tab.key)}
               style={[
                 styles.tab,
                 isActive && {
@@ -268,16 +502,37 @@ export default function ExploreScreen() {
         style={styles.tabsRow}
       />
 
+      {/* ── Genre strip ────────────────────────────────────────────────────── */}
+      <View style={styles.sectionHeader}>
+        <Text style={styles.sectionLabel}>Browse by Genre</Text>
+        <RandomizerButton
+          accent={accent}
+          activeTab={activeTab}
+          onRandomize={handleRandomize}
+          spinning={randSpinning}
+        />
+      </View>
+      <GenreStrip
+        genres={GENRE_POOL[activeTab]}
+        selected={selectedGenres}
+        accent={accent}
+        onToggle={(g) => {
+          setQuery(""); // clear text search when genre tapped
+          toggleGenre(g);
+        }}
+        onClear={clearGenres}
+      />
+
       {/* ── Results ────────────────────────────────────────────────────────── */}
-      {isLoading && debouncedQ.length > 1 ? (
+      {isLoading ? (
         <View style={styles.loadingWrap}>
           <ActivityIndicator color={accent} size="large" />
           <Text style={[styles.loadingText, { color: accent }]}>
-            Searching…
+            {selectedGenres.length > 0 ? "Filtering by genre…" : "Searching…"}
           </Text>
         </View>
       ) : results.length === 0 ? (
-        <EmptyState query={debouncedQ} active={activeTab} />
+        <EmptyState query={debouncedQ} active={activeTab} genres={selectedGenres} />
       ) : (
         <FlatList
           data={results}
@@ -288,6 +543,9 @@ export default function ExploreScreen() {
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
           removeClippedSubviews
+          ListHeaderComponent={
+            <GenreResultHeader genres={selectedGenres} accent={accent} />
+          }
         />
       )}
     </SafeAreaView>
@@ -297,12 +555,8 @@ export default function ExploreScreen() {
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  safe: {
-    flex: 1,
-    backgroundColor: "#0C0C18",
-  },
+  safe: { flex: 1, backgroundColor: "#0C0C18" },
 
-  // Header
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -310,6 +564,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingTop: 6,
     paddingBottom: 12,
+  },
+  headerEyebrow: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12,
+    letterSpacing: 0.3,
+    marginBottom: 2,
   },
   headerTitle: {
     color: "#FFFFFF",
@@ -326,7 +586,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Search
   searchWrap: {
     flexDirection: "row",
     alignItems: "center",
@@ -338,14 +597,8 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   searchIcon: { marginRight: 8 },
-  searchInput: {
-    flex: 1,
-    color: "#FFFFFF",
-    fontSize: 15,
-    paddingVertical: 0,
-  },
+  searchInput: { flex: 1, color: "#FFFFFF", fontSize: 15, paddingVertical: 0 },
 
-  // Tabs
   tabsRow: { flexGrow: 0, marginBottom: 14 },
   tabsContainer: { paddingHorizontal: 16, gap: 8 },
   tab: {
@@ -365,30 +618,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.1,
   },
 
-  // Results
-  listContent: {
+  // Genre section
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingBottom: 32,
+    marginBottom: 8,
   },
-  gridItem: {
-    flex: 1,
-    margin: 6,
-  },
-  listItem: {
-    marginHorizontal: 0,
+  sectionLabel: {
+    color: "rgba(255,255,255,0.5)",
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
   },
 
-  // States
-  loadingWrap: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    fontWeight: "500",
-  },
+  listContent: { paddingHorizontal: 16, paddingBottom: 32 },
+  gridItem: { flex: 1, margin: 6 },
+  listItem: { marginHorizontal: 0 },
+
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
+  loadingText: { fontSize: 14, fontWeight: "500" },
   emptyWrap: {
     flex: 1,
     alignItems: "center",
@@ -396,14 +647,61 @@ const styles = StyleSheet.create({
     gap: 8,
     paddingBottom: 60,
   },
-  emptyTitle: {
-    color: "rgba(255,255,255,0.7)",
-    fontSize: 18,
-    fontWeight: "600",
-    marginTop: 12,
+  emptyTitle: { color: "rgba(255,255,255,0.7)", fontSize: 18, fontWeight: "600", marginTop: 12 },
+  emptySub: { color: "rgba(255,255,255,0.3)", fontSize: 13 },
+});
+
+// Genre strip styles
+const genreStyles = StyleSheet.create({
+  row: { marginBottom: 14 },
+  container: { paddingHorizontal: 16, gap: 7 },
+  chip: {
+    paddingHorizontal: 11,
+    paddingVertical: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.04)",
   },
-  emptySub: {
-    color: "rgba(255,255,255,0.3)",
-    fontSize: 13,
+  chipText: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+    fontWeight: "500",
+    letterSpacing: 0.1,
   },
+  clearChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderColor: "rgba(255,80,80,0.4)",
+    backgroundColor: "rgba(255,80,80,0.12)",
+  },
+  clearText: { color: "rgba(255,100,100,0.9)", fontSize: 11, fontWeight: "600" },
+});
+
+// Randomizer styles
+const randStyles = StyleSheet.create({
+  wrap: { flexDirection: "row", gap: 6 },
+  btn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 14,
+    borderWidth: 1,
+  },
+  btnText: { fontSize: 11, fontWeight: "600", letterSpacing: 0.2 },
+});
+
+// Genre result header styles
+const headerStyles = StyleSheet.create({
+  wrap: { paddingBottom: 12 },
+  inner: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginBottom: 4 },
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  badgeText: { fontSize: 12, fontWeight: "600" },
+  sub: { color: "rgba(255,255,255,0.25)", fontSize: 11, marginTop: 2 },
 });

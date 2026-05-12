@@ -51,7 +51,7 @@ export default function AnimeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.headerSub}>Welcome to</Text>
+          <Text style={styles.headerSub}>Track your</Text>
           <Text style={styles.headerTitle}>Anime</Text>
         </View>
         <View style={[styles.accentDot, { backgroundColor: ACCENT }]} />
