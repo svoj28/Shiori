@@ -1,21 +1,21 @@
 import MediaCard from "@/components/MediaCard";
 import {
-  TRACKER_STATUSES_DISPLAY,
-  useTracker,
-  type TrackerStatus,
+    TRACKER_STATUSES_DISPLAY,
+    useTracker,
+    type TrackerStatus,
 } from "@/contexts/tracker-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
 import {
-  FlatList,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    FlatList,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -65,12 +65,12 @@ function SectionTitle({
   );
 }
 
-export default function ProfileScreen() {
+export default function LibraryScreen() {
   const tracker = useTracker();
   const router = useRouter();
   const [activeTab, setActiveTab] = React.useState<LibraryTab>("Status");
   const [selectedStatus, setSelectedStatus] =
-    React.useState<TrackerStatus | null>(null);
+    React.useState<TrackerStatus>("Watching");
   const [newCollectionName, setNewCollectionName] = React.useState("");
   const [pendingDelete, setPendingDelete] = React.useState<string | null>(null);
   const [toastMsg, setToastMsg] = React.useState<string | null>(null);
@@ -114,7 +114,6 @@ export default function ProfileScreen() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <StatusBar barStyle="light-content" />
 
-      {/* Toast */}
       {toastMsg && (
         <View style={styles.toast} pointerEvents="none">
           <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
@@ -122,7 +121,6 @@ export default function ProfileScreen() {
         </View>
       )}
 
-      {/* Delete confirmation modal */}
       {pendingDelete && (
         <View style={styles.modalOverlay}>
           <View style={styles.modalCard}>
@@ -133,8 +131,8 @@ export default function ProfileScreen() {
             <Text style={styles.modalBody}>
               <Text style={{ color: "#fff", fontWeight: "700" }}>
                 "{pendingDelete}"
-              </Text>
-              {" "}will be permanently removed. Your tracked titles won't be
+              </Text>{" "}
+              will be permanently removed. Your tracked titles won't be
               affected.
             </Text>
             <View style={styles.modalActions}>
@@ -159,7 +157,6 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scroll}
       >
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <Text style={styles.headerEyebrow}>Library</Text>
@@ -170,7 +167,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* Hero card */}
         <View style={styles.heroCard}>
           <View style={styles.tabRow}>
             {LIBRARY_TABS.map((tab) => {
@@ -180,7 +176,9 @@ export default function ProfileScreen() {
                   key={tab}
                   onPress={() => {
                     setActiveTab(tab);
-                    setSelectedStatus(null);
+                    if (tab === "Status") {
+                      setSelectedStatus("Watching");
+                    }
                   }}
                   style={[
                     styles.tabPill,
@@ -215,53 +213,53 @@ export default function ProfileScreen() {
             />
           </View>
 
-          <View style={styles.statusGrid}>
-            {TRACKER_STATUSES_DISPLAY.map((status) => {
-              const isSelected =
-                activeTab === "Status" && selectedStatus === status;
-              return (
-                <Pressable
-                  key={status}
-                  onPress={() => setSelectedStatus(isSelected ? null : status)}
-                  style={[
-                    styles.statusTile,
-                    {
-                      borderColor:
-                        STATUS_COLORS[status] + (isSelected ? "CC" : "55"),
-                      backgroundColor:
-                        STATUS_COLORS[status] + (isSelected ? "25" : "15"),
-                    },
-                  ]}
-                >
-                  <Text
+          {activeTab === "Status" && (
+            <View style={styles.statusGrid}>
+              {TRACKER_STATUSES_DISPLAY.map((status) => {
+                const isSelected = selectedStatus === status;
+                return (
+                  <Pressable
+                    key={status}
+                    onPress={() => setSelectedStatus(status)}
                     style={[
-                      styles.statusCount,
+                      styles.statusTile,
                       {
-                        color: STATUS_COLORS[status],
-                        fontWeight: isSelected ? "700" : "600",
+                        borderColor:
+                          STATUS_COLORS[status] + (isSelected ? "CC" : "55"),
+                        backgroundColor:
+                          STATUS_COLORS[status] + (isSelected ? "25" : "15"),
                       },
                     ]}
                   >
-                    {tracker.statusCounts[status]}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.statusLabel,
-                      {
-                        color: STATUS_COLORS[status],
-                        fontWeight: isSelected ? "700" : "500",
-                      },
-                    ]}
-                  >
-                    {status}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        styles.statusCount,
+                        {
+                          color: STATUS_COLORS[status],
+                          fontWeight: isSelected ? "700" : "600",
+                        },
+                      ]}
+                    >
+                      {tracker.statusCounts[status]}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.statusLabel,
+                        {
+                          color: STATUS_COLORS[status],
+                          fontWeight: isSelected ? "700" : "500",
+                        },
+                      ]}
+                    >
+                      {status}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
         </View>
 
-        {/* Tab content */}
         {activeTab === "Collections" ? (
           <>
             <SectionTitle
@@ -474,7 +472,6 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: "#0C0C18" },
   scroll: { paddingBottom: 24 },
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -502,7 +499,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   heroCard: {
     marginHorizontal: 16,
     borderRadius: 20,
@@ -523,7 +519,6 @@ const styles = StyleSheet.create({
   },
   tabText: { color: "rgba(255,255,255,0.52)", fontSize: 12, fontWeight: "700" },
   tabTextActive: { color: "#fff" },
-
   summaryRow: { flexDirection: "row", gap: 10, marginBottom: 14 },
   summaryTile: {
     flex: 1,
@@ -541,7 +536,6 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     letterSpacing: 0.6,
   },
-
   statusGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   statusTile: {
     width: "31%",
@@ -553,7 +547,6 @@ const styles = StyleSheet.create({
   },
   statusCount: { fontSize: 20, fontWeight: "800" },
   statusLabel: { fontSize: 11, fontWeight: "700", marginTop: 2 },
-
   sectionHeader: { paddingHorizontal: 20, marginBottom: 10 },
   sectionTitle: { color: "#fff", fontSize: 17, fontWeight: "800" },
   sectionSubtitle: {
@@ -561,9 +554,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
-
   mediaRow: { marginHorizontal: 16 },
-
   emptyCard: {
     marginHorizontal: 16,
     backgroundColor: "#141420",
@@ -580,8 +571,12 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     marginBottom: 6,
   },
-  emptySub: { color: "rgba(255,255,255,0.38)", fontSize: 13, lineHeight: 19, textAlign: "center" },
-
+  emptySub: {
+    color: "rgba(255,255,255,0.38)",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+  },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -606,7 +601,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   collectionGrid: {
     paddingHorizontal: 16,
     gap: 10,
@@ -673,7 +667,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "600",
   },
-
   modalOverlay: {
     position: "absolute",
     top: 0,
@@ -745,7 +738,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
   },
-
   toast: {
     position: "absolute",
     bottom: 90,

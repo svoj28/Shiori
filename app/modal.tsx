@@ -15,6 +15,7 @@ import YoutubePlayer from "react-native-youtube-iframe";
 import {
     ActivityIndicator,
     KeyboardAvoidingView,
+    Linking,
     Modal,
     Platform,
     Pressable,
@@ -24,7 +25,6 @@ import {
     Text,
     TextInput,
     View,
-    Linking
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -143,16 +143,16 @@ export default function ModalScreen() {
     retry: 1,
   });
 
-const { data: recommendations } = useQuery({
-  queryKey: ["tracker-recommendations", id, type],
-  queryFn: () =>
-    getRecommendations(
-      numericId,
-      type === "lightnovel" ? "MANGA" : anilistType,
-    ),
-  enabled: Number.isFinite(numericId),
-  staleTime: 1000 * 60 * 10,
-});
+  const { data: recommendations } = useQuery({
+    queryKey: ["tracker-recommendations", id, type],
+    queryFn: () =>
+      getRecommendations(
+        numericId,
+        type === "lightnovel" ? "MANGA" : anilistType,
+      ),
+    enabled: Number.isFinite(numericId),
+    staleTime: 1000 * 60 * 10,
+  });
 
   const displayTitle =
     detail?.title?.english ?? detail?.title?.romaji ?? seedTitle;
@@ -160,6 +160,20 @@ const { data: recommendations } = useQuery({
     detail?.coverImage?.extraLarge ?? detail?.coverImage?.large ?? seedCover;
   const description = stripHtml(detail?.description ?? "");
   const genres = detail?.genres ?? [];
+  const officialLinks = useMemo(() => {
+    const links = (detail?.externalLinks ?? []) as Array<{
+      site?: string;
+      url?: string;
+      type?: string;
+    }>;
+    const preferredType = type === "anime" ? "STREAMING" : "READING";
+    const filtered = links.filter(
+      (link) => link.url && (!link.type || link.type === preferredType),
+    );
+    return (filtered.length > 0 ? filtered : links)
+      .filter((link) => Boolean(link.url))
+      .slice(0, 6);
+  }, [detail?.externalLinks, type]);
   const totalProgress =
     type === "anime"
       ? (detail?.episodes ?? null)
@@ -177,23 +191,23 @@ const { data: recommendations } = useQuery({
   const progressLimit = releasedProgress ?? totalProgress;
   const [now, setNow] = useState(() => Date.now());
 
-const trailerUrl = useMemo(() => {
-  const t = detail?.trailer;
-  if (!t?.id) return null;
-  if (t.site === "youtube") {
-    return `https://www.youtube-nocookie.com/embed/${t.id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`;
-  }
-  if (t.site === "dailymotion") {
-    return `https://www.dailymotion.com/embed/video/${t.id}?autoplay=1`;
-  }
-  return null;
-}, [detail?.trailer]);
+  const trailerUrl = useMemo(() => {
+    const t = detail?.trailer;
+    if (!t?.id) return null;
+    if (t.site === "youtube") {
+      return `https://www.youtube-nocookie.com/embed/${t.id}?autoplay=1&playsinline=1&rel=0&modestbranding=1`;
+    }
+    if (t.site === "dailymotion") {
+      return `https://www.dailymotion.com/embed/video/${t.id}?autoplay=1`;
+    }
+    return null;
+  }, [detail?.trailer]);
 
-const trailerAppUrl = useMemo(() => {
-  const t = detail?.trailer;
-  if (!t?.id || t.site !== "youtube") return null;
-  return `https://www.youtube.com/watch?v=${t.id}`;
-}, [detail?.trailer]);
+  const trailerAppUrl = useMemo(() => {
+    const t = detail?.trailer;
+    if (!t?.id || t.site !== "youtube") return null;
+    return `https://www.youtube.com/watch?v=${t.id}`;
+  }, [detail?.trailer]);
 
   useEffect(() => {
     if (
@@ -498,420 +512,469 @@ const trailerAppUrl = useMemo(() => {
             </View>
           )}
 
-{/* {detail?.trailer?.id && type === "anime" && isTracked && ( */}
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>Trailer</Text>
-    {trailerPlaying ? (
-      <YoutubePlayer
-        height={210}
-        videoId={detail.trailer.id}
-        play={true}
-        webViewStyle={{ borderRadius: 16, overflow: "hidden" }}
-      />
-    ) : (
-      <Pressable
-        onPress={() => setTrailerPlaying(true)}
-        style={styles.trailerThumb}
-      >
-        <Image
-          source={{
-            uri:
-              detail?.trailer?.thumbnail ??
-              detail?.bannerImage ??
-              displayCover,
-          }}
-          style={StyleSheet.absoluteFillObject}
-          contentFit="cover"
-        />
-        <View style={styles.trailerOverlay} />
-        <View style={[styles.trailerPlayBtn, { backgroundColor: accent }]}>
-          <Ionicons name="play" size={22} color="#fff" />
-        </View>
-        <Text style={styles.trailerLabel}>Watch trailer</Text>
-      </Pressable>
-    )}
-  </View>
-{/* Characters */}
-{detail?.characters?.edges?.length > 0 && (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>
-      {type === "anime" ? "Characters & Voice Actors" : "Characters"}
-    </Text>
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.recsRow}
-    >
-      {detail.characters.edges.map((edge: any) => {
-        const char = edge.node;
-        const va = edge.voiceActors?.[0];
-        return (
-          <View key={char.name.full} style={styles.charCard}>
-            <View style={styles.charImgRow}>
-              <Image
-                source={{ uri: char.image?.large }}
-                style={styles.charImg}
-                contentFit="cover"
+          {officialLinks.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {type === "anime" ? "Watch legally" : "Read legally"}
+              </Text>
+              <View style={styles.legalLinksList}>
+                {officialLinks.map((link: any) => (
+                  <Pressable
+                    key={`${link.site ?? "link"}-${link.url}`}
+                    onPress={() => Linking.openURL(link.url)}
+                    style={({ pressed }) => [
+                      styles.legalLinkCard,
+                      pressed && { opacity: 0.82 },
+                    ]}
+                  >
+                    <View style={styles.legalLinkIconWrap}>
+                      <Ionicons name="open-outline" size={16} color={accent} />
+                    </View>
+                    <View style={styles.legalLinkInfo}>
+                      <Text style={styles.legalLinkTitle} numberOfLines={1}>
+                        {link.site ?? "Official source"}
+                      </Text>
+                      <Text style={styles.legalLinkSub} numberOfLines={1}>
+                        {link.type ?? "Official link"}
+                      </Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {/* {detail?.trailer?.id && type === "anime" && isTracked && ( */}
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Trailer</Text>
+            {trailerPlaying ? (
+              <YoutubePlayer
+                height={210}
+                videoId={detail.trailer.id}
+                play={true}
+                webViewStyle={{ borderRadius: 16, overflow: "hidden" }}
               />
-              {va && (
+            ) : (
+              <Pressable
+                onPress={() => setTrailerPlaying(true)}
+                style={styles.trailerThumb}
+              >
                 <Image
-                  source={{ uri: va.image?.large }}
-                  style={styles.vaImg}
+                  source={{
+                    uri:
+                      detail?.trailer?.thumbnail ??
+                      detail?.bannerImage ??
+                      displayCover,
+                  }}
+                  style={StyleSheet.absoluteFillObject}
                   contentFit="cover"
                 />
-              )}
-            </View>
-            <View style={styles.charInfo}>
-              <Text style={styles.charName} numberOfLines={2}>
-                {char.name.full}
-              </Text>
-              <Text style={[styles.charRole, { color: accent }]}>
-                {edge.role === "MAIN" ? "Main" : "Supporting"}
-              </Text>
-              {va && (
-                <Text style={styles.vaName} numberOfLines={1}>
-                  {va.name.full}
-                </Text>
-              )}
-            </View>
+                <View style={styles.trailerOverlay} />
+                <View
+                  style={[styles.trailerPlayBtn, { backgroundColor: accent }]}
+                >
+                  <Ionicons name="play" size={22} color="#fff" />
+                </View>
+                <Text style={styles.trailerLabel}>Watch trailer</Text>
+              </Pressable>
+            )}
           </View>
-        );
-      })}
-    </ScrollView>
-  </View>
-)}
-{/* Staff & Studio */}
-{(detail?.staff?.edges?.length > 0 || detail?.studios?.nodes?.length > 0) && (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>
-      {type === "anime" ? "Staff & Studio" : "Staff & Author"}
-    </Text>
-
-    {/* Studio / Publisher */}
-    {detail?.studios?.nodes?.length > 0 && (
-      <View style={styles.studioRow}>
-        <Ionicons name="business-outline" size={13} color={accent} />
-        <Text style={[styles.studioLabel, { color: accent }]}>
-          {type === "anime" ? "Studio" : "Publisher"}
-        </Text>
-        <Text style={styles.studioName}>
-          {detail.studios.nodes.map((s: any) => s.name).join(", ")}
-        </Text>
-      </View>
-    )}
-
-    <View style={styles.staffGrid}>
-      {detail?.staff?.edges?.map((edge: any) => (
-        <View key={edge.node.name.full + edge.role} style={styles.staffCard}>
-          <Image
-            source={{ uri: edge.node.image?.large }}
-            style={styles.staffImg}
-            contentFit="cover"
-          />
-          <View style={styles.staffInfo}>
-            <Text style={styles.staffName} numberOfLines={2}>
-              {edge.node.name.full}
-            </Text>
-            <Text style={[styles.staffRole, { color: accent }]} numberOfLines={1}>
-              {edge.role}
-            </Text>
-          </View>
-        </View>
-      ))}
-    </View>
-  </View>
-)}
-  {recommendations && recommendations.length > 0 && (
-  <View style={styles.section}>
-    <Text style={styles.sectionTitle}>Recommendations</Text>
-    <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
-      contentContainerStyle={styles.recsRow}
-    >
-      {recommendations.map((rec) => {
-        const recType =
-          rec.format === "MANGA"
-            ? "manga"
-            : rec.format === "NOVEL"
-              ? "lightnovel"
-              : "anime";
-        const recAccent = TYPE_COLOR[recType] ?? "#A78BFA";
-        const recTitle =
-          rec.title?.english ?? rec.title?.romaji ?? "Unknown";
-        const recCover =
-          rec.coverImage?.extraLarge ?? rec.coverImage?.large;
-
-        return (
-          <Pressable
-            key={rec.id}
-            style={styles.recCard}
-            onPress={() =>
-              router.push({
-                pathname: "/modal",   // or whatever your actual route is
-                params: {
-                  id: String(rec.id),
-                  type: recType,
-                  title: encodeURIComponent(recTitle),
-                  cover: recCover ?? "",
-                },
-              })
-            }
-          >
-            <Image
-              source={{ uri: recCover }}
-              style={styles.recCover}
-              contentFit="cover"
-            />
-            <View
-              style={[
-                styles.recTypeBadge,
-                { backgroundColor: recAccent + "22", borderColor: recAccent + "55" },
-              ]}
-            >
-              <Text style={[styles.recTypeText, { color: recAccent }]}>
-                {recType === "lightnovel" ? "LN" : recType.toUpperCase()}
+          {/* Characters */}
+          {detail?.characters?.edges?.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {type === "anime" ? "Characters & Voice Actors" : "Characters"}
               </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recsRow}
+              >
+                {detail.characters.edges.map((edge: any) => {
+                  const char = edge.node;
+                  const va = edge.voiceActors?.[0];
+                  return (
+                    <View key={char.name.full} style={styles.charCard}>
+                      <View style={styles.charImgRow}>
+                        <Image
+                          source={{ uri: char.image?.large }}
+                          style={styles.charImg}
+                          contentFit="cover"
+                        />
+                        {va && (
+                          <Image
+                            source={{ uri: va.image?.large }}
+                            style={styles.vaImg}
+                            contentFit="cover"
+                          />
+                        )}
+                      </View>
+                      <View style={styles.charInfo}>
+                        <Text style={styles.charName} numberOfLines={2}>
+                          {char.name.full}
+                        </Text>
+                        <Text style={[styles.charRole, { color: accent }]}>
+                          {edge.role === "MAIN" ? "Main" : "Supporting"}
+                        </Text>
+                        {va && (
+                          <Text style={styles.vaName} numberOfLines={1}>
+                            {va.name.full}
+                          </Text>
+                        )}
+                      </View>
+                    </View>
+                  );
+                })}
+              </ScrollView>
             </View>
-            <View style={styles.recInfo}>
-              <Text style={styles.recTitle} numberOfLines={2}>
-                {recTitle}
+          )}
+          {/* Staff & Studio */}
+          {(detail?.staff?.edges?.length > 0 ||
+            detail?.studios?.nodes?.length > 0) && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>
+                {type === "anime" ? "Staff & Studio" : "Staff & Author"}
               </Text>
-              {rec.averageScore ? (
-                <View style={styles.recScoreRow}>
-                  <Ionicons name="star" size={10} color="#FBBF24" />
-                  <Text style={styles.recScore}>
-                    {(rec.averageScore / 10).toFixed(1)}
+
+              {/* Studio / Publisher */}
+              {detail?.studios?.nodes?.length > 0 && (
+                <View style={styles.studioRow}>
+                  <Ionicons name="business-outline" size={13} color={accent} />
+                  <Text style={[styles.studioLabel, { color: accent }]}>
+                    {type === "anime" ? "Studio" : "Publisher"}
+                  </Text>
+                  <Text style={styles.studioName}>
+                    {detail.studios.nodes.map((s: any) => s.name).join(", ")}
                   </Text>
                 </View>
-              ) : null}
+              )}
+
+              <View style={styles.staffGrid}>
+                {detail?.staff?.edges?.map((edge: any) => (
+                  <View
+                    key={edge.node.name.full + edge.role}
+                    style={styles.staffCard}
+                  >
+                    <Image
+                      source={{ uri: edge.node.image?.large }}
+                      style={styles.staffImg}
+                      contentFit="cover"
+                    />
+                    <View style={styles.staffInfo}>
+                      <Text style={styles.staffName} numberOfLines={2}>
+                        {edge.node.name.full}
+                      </Text>
+                      <Text
+                        style={[styles.staffRole, { color: accent }]}
+                        numberOfLines={1}
+                      >
+                        {edge.role}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
             </View>
-          </Pressable>
-        );
-      })}
-    </ScrollView>
-  </View>
-)}
-{/* )} */}
+          )}
+          {recommendations && recommendations.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Recommendations</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.recsRow}
+              >
+                {recommendations.map((rec) => {
+                  const recType =
+                    rec.format === "MANGA"
+                      ? "manga"
+                      : rec.format === "NOVEL"
+                        ? "lightnovel"
+                        : "anime";
+                  const recAccent = TYPE_COLOR[recType] ?? "#A78BFA";
+                  const recTitle =
+                    rec.title?.english ?? rec.title?.romaji ?? "Unknown";
+                  const recCover =
+                    rec.coverImage?.extraLarge ?? rec.coverImage?.large;
+
+                  return (
+                    <Pressable
+                      key={rec.id}
+                      style={styles.recCard}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/modal", // or whatever your actual route is
+                          params: {
+                            id: String(rec.id),
+                            type: recType,
+                            title: encodeURIComponent(recTitle),
+                            cover: recCover ?? "",
+                          },
+                        })
+                      }
+                    >
+                      <Image
+                        source={{ uri: recCover }}
+                        style={styles.recCover}
+                        contentFit="cover"
+                      />
+                      <View
+                        style={[
+                          styles.recTypeBadge,
+                          {
+                            backgroundColor: recAccent + "22",
+                            borderColor: recAccent + "55",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[styles.recTypeText, { color: recAccent }]}
+                        >
+                          {recType === "lightnovel"
+                            ? "LN"
+                            : recType.toUpperCase()}
+                        </Text>
+                      </View>
+                      <View style={styles.recInfo}>
+                        <Text style={styles.recTitle} numberOfLines={2}>
+                          {recTitle}
+                        </Text>
+                        {rec.averageScore ? (
+                          <View style={styles.recScoreRow}>
+                            <Ionicons name="star" size={10} color="#FBBF24" />
+                            <Text style={styles.recScore}>
+                              {(rec.averageScore / 10).toFixed(1)}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          )}
+          {/* )} */}
 
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Tracking</Text>
             <View style={styles.actionRow}>
-  <Pressable
-    onPress={toggleWishlist}
-    style={[
-      styles.actionButton,
-      entry?.wishlist && {
-        backgroundColor: "#F472B6" + "22",
-        borderColor: "#F472B6" + "88",
-      },
-    ]}
-  >
-    <Ionicons
-      name={entry?.wishlist ? "heart" : "heart-outline"}
-      size={16}
-      color={entry?.wishlist ? "#F472B6" : "rgba(255,255,255,0.7)"}
-    />
-    <Text
-      style={[
-        styles.actionText,
-        entry?.wishlist && { color: "#F472B6" },
-      ]}
-    >
-      {entry?.wishlist ? "Remove from wishlist" : "Add to wishlist"}
-    </Text>
-  </Pressable>
-  {/* <Pressable
+              <Pressable
+                onPress={toggleWishlist}
+                style={[
+                  styles.actionButton,
+                  entry?.wishlist && {
+                    backgroundColor: "#F472B6" + "22",
+                    borderColor: "#F472B6" + "88",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={entry?.wishlist ? "heart" : "heart-outline"}
+                  size={16}
+                  color={entry?.wishlist ? "#F472B6" : "rgba(255,255,255,0.7)"}
+                />
+                <Text
+                  style={[
+                    styles.actionText,
+                    entry?.wishlist && { color: "#F472B6" },
+                  ]}
+                >
+                  {entry?.wishlist ? "Remove from wishlist" : "Add to wishlist"}
+                </Text>
+              </Pressable>
+              {/* <Pressable
     onPress={removeEntry}
     style={[styles.actionButton, styles.dangerButton]}
   >
     <Ionicons name="trash-outline" size={16} color="#EF4444" />
     <Text style={[styles.actionText, styles.dangerText]}>Remove</Text>
   </Pressable> */}
-</View>
-
-{entry?.wishlist && (
-  <>
-    <View style={styles.statsGrid}>
-      <StatChip
-        label="Total"
-        value={totalProgress ? String(totalProgress) : "—"}
-        accent={accent}
-      />
-      <StatChip
-        label={
-          type === "anime" && releasedProgress != null
-            ? "Released"
-            : "Status"
-        }
-        value={
-          type === "anime" && releasedProgress != null
-            ? String(releasedProgress)
-            : (entry?.status ?? "None")
-        }
-        accent={accent}
-      />
-      <StatChip
-        label="Collections"
-        value={String(entry?.collections.length ?? 0)}
-        accent={accent}
-      />
-    </View>
-
-    {type === "anime" &&
-      releasedProgress != null &&
-      totalProgress != null && (
-        <View style={styles.countdownBox}>
-          <Text style={[styles.countdownLabel, { color: accent }]}>
-            Ongoing countdown
-          </Text>
-          <Text style={styles.countdownValue}>
-            {releasedProgress}/{totalProgress} released ·{" "}
-            {Math.max(totalProgress - releasedProgress, 0)} left
-            {nextReleaseLabel ? ` · next in ${nextReleaseLabel}` : ""}
-          </Text>
-        </View>
-      )}
-
-    <Text style={styles.sectionLabel}>Status</Text>
-    <View style={styles.statusGrid}>
-      {TRACKER_STATUSES_DISPLAY.map((status) => {
-        const active = entry?.status === status;
-        return (
-          <Pressable
-            key={status}
-            onPress={() => setStatus(status)}
-            style={[
-              styles.statusPill,
-              active && {
-                backgroundColor: accent + "22",
-                borderColor: accent + "88",
-              },
-            ]}
-          >
-            <Text
-              style={[
-                styles.statusPillText,
-                active && { color: accent, fontWeight: "700" },
-              ]}
-            >
-              {status}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-
-    <Stepper
-      label={`Current ${type === "anime" ? "Episode" : "Chapter"}`}
-      value={Number.parseInt(progressDraft, 10) || 0}
-      onChange={applyProgress}
-      accent={accent}
-      max={progressLimit}
-    />
-    <View style={styles.inlineInputRow}>
-      <TextInput
-        value={progressDraft}
-        onChangeText={setProgressDraft}
-        onSubmitEditing={() =>
-          applyProgress(Number.parseInt(progressDraft, 10) || 0)
-        }
-        keyboardType="number-pad"
-        placeholder="Episode / chapter"
-        placeholderTextColor="rgba(255,255,255,0.24)"
-        style={styles.inlineInput}
-      />
-      <Pressable
-        onPress={() =>
-          applyProgress(Number.parseInt(progressDraft, 10) || 0)
-        }
-        style={[styles.inlineButton, { backgroundColor: accent }]}
-      >
-        <Text style={styles.inlineButtonText}>Set</Text>
-      </Pressable>
-    </View>
-
-    
-  </>
-)}
-
-            <Stepper
-              label="Total rewatches"
-              value={Number.parseInt(rewatchDraft, 10) || 0}
-              onChange={applyRewatches}
-              accent={accent}
-            />
-            <View style={styles.inlineInputRow}>
-              <TextInput
-                value={rewatchDraft}
-                onChangeText={setRewatchDraft}
-                onSubmitEditing={() =>
-                  applyRewatches(Number.parseInt(rewatchDraft, 10) || 0)
-                }
-                keyboardType="number-pad"
-                placeholder="Rewatches"
-                placeholderTextColor="rgba(255,255,255,0.24)"
-                style={styles.inlineInput}
-              />
-              <Pressable
-                onPress={() =>
-                  applyRewatches(Number.parseInt(rewatchDraft, 10) || 0)
-                }
-                style={[styles.inlineButton, { backgroundColor: accent }]}
-              >
-                <Text style={styles.inlineButtonText}>Set</Text>
-              </Pressable>
             </View>
-          </View>
 
-                
+            {entry?.wishlist && (
+              <>
+                <View style={styles.statsGrid}>
+                  <StatChip
+                    label="Total"
+                    value={totalProgress ? String(totalProgress) : "—"}
+                    accent={accent}
+                  />
+                  <StatChip
+                    label={
+                      type === "anime" && releasedProgress != null
+                        ? "Released"
+                        : "Status"
+                    }
+                    value={
+                      type === "anime" && releasedProgress != null
+                        ? String(releasedProgress)
+                        : (entry?.status ?? "None")
+                    }
+                    accent={accent}
+                  />
+                  <StatChip
+                    label="Collections"
+                    value={String(entry?.collections.length ?? 0)}
+                    accent={accent}
+                  />
+                </View>
 
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Collections</Text>
-            <View style={styles.inlineInputRow}>
-              <TextInput
-                value={collectionDraft}
-                onChangeText={setCollectionDraft}
-                onSubmitEditing={addCollection}
-                placeholder="New collection name"
-                placeholderTextColor="rgba(255,255,255,0.24)"
-                style={styles.inlineInput}
-              />
-              <Pressable
-                onPress={
-                  collectionDraft.trim()
-                    ? addCollection
-                    : () => setShowCollectionPicker(true)
-                }
-                style={[styles.inlineButton, { backgroundColor: accent }]}
-              >
-                <Text style={styles.inlineButtonText}>
-                  {collectionDraft.trim() ? "Add" : "Pick"}
-                </Text>
-              </Pressable>
-            </View>
-            <View style={styles.collectionWrap}>
-              {entry?.collections.length ? (
-                entry.collections.map((collection) => (
+                {type === "anime" &&
+                  releasedProgress != null &&
+                  totalProgress != null && (
+                    <View style={styles.countdownBox}>
+                      <Text style={[styles.countdownLabel, { color: accent }]}>
+                        Ongoing countdown
+                      </Text>
+                      <Text style={styles.countdownValue}>
+                        {releasedProgress}/{totalProgress} released ·{" "}
+                        {Math.max(totalProgress - releasedProgress, 0)} left
+                        {nextReleaseLabel
+                          ? ` · next in ${nextReleaseLabel}`
+                          : ""}
+                      </Text>
+                    </View>
+                  )}
+
+                <Text style={styles.sectionLabel}>Status</Text>
+                <View style={styles.statusGrid}>
+                  {TRACKER_STATUSES_DISPLAY.map((status) => {
+                    const active = entry?.status === status;
+                    return (
+                      <Pressable
+                        key={status}
+                        onPress={() => setStatus(status)}
+                        style={[
+                          styles.statusPill,
+                          active && {
+                            backgroundColor: accent + "22",
+                            borderColor: accent + "88",
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.statusPillText,
+                            active && { color: accent, fontWeight: "700" },
+                          ]}
+                        >
+                          {status}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Stepper
+                  label={`Current ${type === "anime" ? "Episode" : "Chapter"}`}
+                  value={Number.parseInt(progressDraft, 10) || 0}
+                  onChange={applyProgress}
+                  accent={accent}
+                  max={progressLimit}
+                />
+                <View style={styles.inlineInputRow}>
+                  <TextInput
+                    value={progressDraft}
+                    onChangeText={setProgressDraft}
+                    onSubmitEditing={() =>
+                      applyProgress(Number.parseInt(progressDraft, 10) || 0)
+                    }
+                    keyboardType="number-pad"
+                    placeholder="Episode / chapter"
+                    placeholderTextColor="rgba(255,255,255,0.24)"
+                    style={styles.inlineInput}
+                  />
                   <Pressable
-                    key={collection}
-                    onPress={() => removeCollection(collection)}
-                    style={styles.collectionPill}
+                    onPress={() =>
+                      applyProgress(Number.parseInt(progressDraft, 10) || 0)
+                    }
+                    style={[styles.inlineButton, { backgroundColor: accent }]}
                   >
-                    <Text style={styles.collectionText}>{collection}</Text>
-                    <Ionicons
-                      name="close"
-                      size={12}
-                      color="rgba(255,255,255,0.5)"
-                    />
+                    <Text style={styles.inlineButtonText}>Set</Text>
                   </Pressable>
-                ))
-              ) : (
-                <Text style={styles.emptyText}>
-                  No collections yet. Add one to group related titles together.
-                </Text>
-              )}
-            </View>
+                </View>
+
+                <Stepper
+                  label="Total rewatches"
+                  value={Number.parseInt(rewatchDraft, 10) || 0}
+                  onChange={applyRewatches}
+                  accent={accent}
+                />
+                <View style={styles.inlineInputRow}>
+                  <TextInput
+                    value={rewatchDraft}
+                    onChangeText={setRewatchDraft}
+                    onSubmitEditing={() =>
+                      applyRewatches(Number.parseInt(rewatchDraft, 10) || 0)
+                    }
+                    keyboardType="number-pad"
+                    placeholder="Rewatches"
+                    placeholderTextColor="rgba(255,255,255,0.24)"
+                    style={styles.inlineInput}
+                  />
+                  <Pressable
+                    onPress={() =>
+                      applyRewatches(Number.parseInt(rewatchDraft, 10) || 0)
+                    }
+                    style={[styles.inlineButton, { backgroundColor: accent }]}
+                  >
+                    <Text style={styles.inlineButtonText}>Set</Text>
+                  </Pressable>
+                </View>
+              </>
+            )}
+
+            {entry?.wishlist && (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>Collections</Text>
+                <View style={styles.inlineInputRow}>
+                  <TextInput
+                    value={collectionDraft}
+                    onChangeText={setCollectionDraft}
+                    onSubmitEditing={addCollection}
+                    placeholder="New collection name"
+                    placeholderTextColor="rgba(255,255,255,0.24)"
+                    style={styles.inlineInput}
+                  />
+                  <Pressable
+                    onPress={
+                      collectionDraft.trim()
+                        ? addCollection
+                        : () => setShowCollectionPicker(true)
+                    }
+                    style={[styles.inlineButton, { backgroundColor: accent }]}
+                  >
+                    <Text style={styles.inlineButtonText}>
+                      {collectionDraft.trim() ? "Add" : "Pick"}
+                    </Text>
+                  </Pressable>
+                </View>
+                <View style={styles.collectionWrap}>
+                  {entry?.collections.length ? (
+                    entry.collections.map((collection) => (
+                      <Pressable
+                        key={collection}
+                        onPress={() => removeCollection(collection)}
+                        style={styles.collectionPill}
+                      >
+                        <Text style={styles.collectionText}>{collection}</Text>
+                        <Ionicons
+                          name="close"
+                          size={12}
+                          color="rgba(255,255,255,0.5)"
+                        />
+                      </Pressable>
+                    ))
+                  ) : (
+                    <Text style={styles.emptyText}>
+                      No collections yet. Add one to group related titles
+                      together.
+                    </Text>
+                  )}
+                </View>
+              </View>
+            )}
           </View>
 
           <View style={{ height: 32 }} />
@@ -992,199 +1055,233 @@ const styles = StyleSheet.create({
   scrollContent: { paddingBottom: 28 },
 
   recsRow: {
-  paddingRight: 16,
-  gap: 12,
-},
+    paddingRight: 16,
+    gap: 12,
+  },
 
-// Characters
-charCard: {
-  width: 110,
-  borderRadius: 14,
-  backgroundColor: "#141420",
-  overflow: "hidden",
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.07)",
-},
-charImgRow: {
-  flexDirection: "row",
-  height: 130,
-},
-charImg: {
-  flex: 1,
-  height: "100%",
-},
-vaImg: {
-  flex: 1,
-  height: "100%",
-  borderLeftWidth: 1,
-  borderLeftColor: "rgba(0,0,0,0.4)",
-},
-charInfo: {
-  padding: 8,
-  gap: 2,
-},
-charName: {
-  color: "#fff",
-  fontSize: 11,
-  fontWeight: "700",
-  lineHeight: 15,
-},
-charRole: {
-  fontSize: 10,
-  fontWeight: "700",
-  letterSpacing: 0.4,
-},
-vaName: {
-  color: "rgba(255,255,255,0.45)",
-  fontSize: 10,
-  marginTop: 2,
-},
+  // Characters
+  charCard: {
+    width: 110,
+    borderRadius: 14,
+    backgroundColor: "#141420",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  charImgRow: {
+    flexDirection: "row",
+    height: 130,
+  },
+  charImg: {
+    flex: 1,
+    height: "100%",
+  },
+  vaImg: {
+    flex: 1,
+    height: "100%",
+    borderLeftWidth: 1,
+    borderLeftColor: "rgba(0,0,0,0.4)",
+  },
+  charInfo: {
+    padding: 8,
+    gap: 2,
+  },
+  charName: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 15,
+  },
+  charRole: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+  },
+  vaName: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 10,
+    marginTop: 2,
+  },
 
-// Staff
-studioRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 6,
-  marginBottom: 14,
-  paddingHorizontal: 12,
-  paddingVertical: 10,
-  borderRadius: 12,
-  backgroundColor: "rgba(255,255,255,0.04)",
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.07)",
-},
-studioLabel: {
-  fontSize: 11,
-  fontWeight: "700",
-  letterSpacing: 0.5,
-  textTransform: "uppercase",
-},
-studioName: {
-  color: "#fff",
-  fontSize: 13,
-  fontWeight: "600",
-  flex: 1,
-},
-staffGrid: {
-  flexDirection: "row",
-  flexWrap: "wrap",
-  gap: 10,
-},
-staffCard: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 10,
-  width: "47%",
-  backgroundColor: "#141420",
-  borderRadius: 12,
-  padding: 10,
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.07)",
-},
-staffImg: {
-  width: 40,
-  height: 40,
-  borderRadius: 20,
-},
-staffInfo: {
-  flex: 1,
-  gap: 2,
-},
-staffName: {
-  color: "#fff",
-  fontSize: 11,
-  fontWeight: "700",
-  lineHeight: 14,
-},
-staffRole: {
-  fontSize: 10,
-  fontWeight: "600",
-  letterSpacing: 0.3,
-},
-recCard: {
-  width: 120,
-  borderRadius: 14,
-  backgroundColor: "#141420",
-  overflow: "hidden",
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.07)",
-},
-recCover: {
-  width: "100%",
-  height: 168,
-},
-recTypeBadge: {
-  position: "absolute",
-  top: 8,
-  left: 8,
-  paddingHorizontal: 6,
-  paddingVertical: 3,
-  borderRadius: 6,
-  borderWidth: 1,
-},
-recTypeText: {
-  fontSize: 9,
-  fontWeight: "800",
-  letterSpacing: 0.6,
-},
-recInfo: {
-  padding: 8,
-  gap: 4,
-},
-recTitle: {
-  color: "#fff",
-  fontSize: 11,
-  fontWeight: "700",
-  lineHeight: 15,
-},
-recScoreRow: {
-  flexDirection: "row",
-  alignItems: "center",
-  gap: 3,
-},
-recScore: {
-  color: "#FBBF24",
-  fontSize: 10,
-  fontWeight: "700",
-},
-    trailerFrame: {
-  height: 210,
-  borderRadius: 16,
-  overflow: "hidden",
-  backgroundColor: "#000",
-},
-trailerWebView: {
-  flex: 1,
-  backgroundColor: "#000",
-},
-trailerThumb: {
-  height: 210,
-  borderRadius: 16,
-  overflow: "hidden",
-  backgroundColor: "#141420",
-  alignItems: "center",
-  justifyContent: "center",
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.07)",
-},
-trailerOverlay: {
-  ...StyleSheet.absoluteFillObject,
-  backgroundColor: "rgba(0,0,0,0.42)",
-},
-trailerPlayBtn: {
-  width: 56,
-  height: 56,
-  borderRadius: 28,
-  alignItems: "center",
-  justifyContent: "center",
-  marginBottom: 10,
-},
-trailerLabel: {
-  color: "rgba(255,255,255,0.85)",
-  fontSize: 13,
-  fontWeight: "700",
-  letterSpacing: 0.3,
-},
+  // Staff
+  studioRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.04)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  studioLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+  studioName: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "600",
+    flex: 1,
+  },
+  staffGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  staffCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "47%",
+    backgroundColor: "#141420",
+    borderRadius: 12,
+    padding: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  staffImg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  staffInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  staffName: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 14,
+  },
+  staffRole: {
+    fontSize: 10,
+    fontWeight: "600",
+    letterSpacing: 0.3,
+  },
+  recCard: {
+    width: 120,
+    borderRadius: 14,
+    backgroundColor: "#141420",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  recCover: {
+    width: "100%",
+    height: 168,
+  },
+  recTypeBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  recTypeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+  },
+  recInfo: {
+    padding: 8,
+    gap: 4,
+  },
+  recTitle: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+    lineHeight: 15,
+  },
+  recScoreRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  recScore: {
+    color: "#FBBF24",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  legalLinksList: {
+    gap: 10,
+  },
+  legalLinkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 14,
+    borderRadius: 14,
+    backgroundColor: "#141420",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  legalLinkIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(255,255,255,0.05)",
+  },
+  legalLinkInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  legalLinkTitle: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  legalLinkSub: {
+    color: "rgba(255,255,255,0.45)",
+    fontSize: 11,
+  },
+  trailerFrame: {
+    height: 210,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#000",
+  },
+  trailerWebView: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  trailerThumb: {
+    height: 210,
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#141420",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.07)",
+  },
+  trailerOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.42)",
+  },
+  trailerPlayBtn: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  trailerLabel: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 13,
+    fontWeight: "700",
+    letterSpacing: 0.3,
+  },
   bannerWrap: { height: 260, position: "relative" },
   banner: { width: "100%", height: "100%" },
   topBar: {

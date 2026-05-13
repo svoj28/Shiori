@@ -1,9 +1,10 @@
 import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
+import { DrawerActions } from "@react-navigation/native";
+import { useNavigation } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import React, { useState } from "react";
 import {
     ActivityIndicator,
     FlatList,
@@ -15,16 +16,15 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const ACCENT = "#7C5CFC";
-
-const FILTERS = ["Trending", "Popular", "Top Rated", "Airing"] as const;
+const ACCENT = "#D4860A";
+const FILTERS = ["Trending", "Popular", "Top Rated", "Ongoing"] as const;
 type Filter = (typeof FILTERS)[number];
 
 const SORT_MAP: Record<Filter, string> = {
   Trending: "TRENDING_DESC",
   Popular: "POPULARITY_DESC",
   "Top Rated": "SCORE_DESC",
-  Airing: "TRENDING_DESC",
+  Ongoing: "POPULARITY_DESC",
 };
 
 function normalise(item: any): MediaItem {
@@ -32,44 +32,50 @@ function normalise(item: any): MediaItem {
     id: item.id,
     title: item.title?.english ?? item.title?.romaji ?? "Unknown",
     coverImage: item.coverImage?.large ?? "",
-    type: "anime",
+    type: "lightnovel",
     score: item.averageScore,
-    episodes: item.episodes,
+    chapters: item.chapters,
     genres: item.genres ?? [],
     raw: item,
   };
 }
 
-export default function AnimeScreen() {
+export default function LightNovelScreen() {
   const [filter, setFilter] = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const router = useRouter();
+  const navigation = useNavigation();
 
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["anime", filter],
-    queryFn: () => getTrending("ANIME", SORT_MAP[filter]),
+    queryKey: ["lightnovel", filter],
+    queryFn: () =>
+      getTrending(
+        "MANGA",
+        SORT_MAP[filter],
+        filter === "Ongoing" ? "RELEASING" : undefined,
+        "NOVEL",
+      ),
   });
 
-  const items: MediaItem[] = (data ?? []).map(normalise);
+  const items: MediaItem[] = (data ?? [])
+    .filter((item) => filter !== "Ongoing" || item.status === "RELEASING")
+    .map(normalise);
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <StatusBar barStyle="light-content" />
 
-      {/* Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.headerSub}>Track your</Text>
-          <Text style={styles.headerTitle}>Anime</Text>
+          <Text style={styles.headerTitle}>Light Novels</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
-            onPress={() => router.push("/creators")}
+            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
             style={styles.viewBtn}
           >
             <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
           </Pressable>
-          <View style={[styles.accentDot, { backgroundColor: ACCENT }]} />
           <Pressable
             onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
             style={styles.viewBtn}
@@ -83,7 +89,6 @@ export default function AnimeScreen() {
         </View>
       </View>
 
-      {/* Filter pills */}
       <FlatList
         data={FILTERS as unknown as Filter[]}
         horizontal
@@ -114,13 +119,11 @@ export default function AnimeScreen() {
         }}
       />
 
-      {/* Grid */}
-      {/* Grid / List */}
       {isLoading ? (
         <View style={styles.center}>
           <ActivityIndicator color={ACCENT} size="large" />
           <Text style={[styles.loadingText, { color: ACCENT }]}>
-            Loading anime…
+            Loading novels…
           </Text>
         </View>
       ) : isError ? (
@@ -181,7 +184,14 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     letterSpacing: -0.5,
   },
-  accentDot: { width: 10, height: 10, borderRadius: 5 },
+  viewBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.07)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   filtersRow: { flexGrow: 0, marginBottom: 12 },
   filtersContainer: { paddingHorizontal: 16, gap: 8 },
   pill: {
@@ -194,15 +204,6 @@ const styles = StyleSheet.create({
   },
   pillText: { color: "rgba(255,255,255,0.5)", fontSize: 13 },
   grid: { paddingHorizontal: 12, paddingBottom: 100 },
-  cardWrap: { flex: 1, margin: 6 },
-  viewBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   gridCard: { flex: 1, margin: 6 },
   listCard: { marginHorizontal: 12 },
   center: {

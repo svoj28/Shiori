@@ -1,6 +1,7 @@
 import { TrackerProvider } from "@/contexts/tracker-context";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
+import { GestureHandlerRootView } from "react-native-gesture-handler";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -13,36 +14,49 @@ const queryClient = new QueryClient({
 
 export default function RootLayout() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TrackerProvider>
-        <Stack screenOptions={{ headerShown: false }}>
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen
-            name="modal"
-            options={{
-              headerShown: false,
-              presentation: "card", // full screen slide-up
-              animation: "slide_from_bottom",
-            }}
-          />
-          <Stack.Screen
-            name="player"
-            options={{
-              headerShown: false,
-              presentation: "fullScreenModal",
-              animation: "fade",
-            }}
-          />
-          <Stack.Screen
-            name="reader"
-            options={{
-              headerShown: false,
-              presentation: "fullScreenModal",
-              animation: "slide_from_right",
-            }}
-          />
-        </Stack>
-      </TrackerProvider>
-    </QueryClientProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <QueryClientProvider client={queryClient}>
+        <TrackerProvider>
+          <Stack screenOptions={{ headerShown: false }}>
+            <Stack.Group screenOptions={{ headerShown: false }}>
+              <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
+            </Stack.Group>
+            <Stack.Group
+              screenOptions={{
+                presentation: "modal",
+                headerShown: false,
+              }}
+            >
+              <Stack.Screen
+                name="creator"
+                options={{
+                  animation: "slide_from_bottom",
+                }}
+              />
+              <Stack.Screen
+                name="modal"
+                options={{
+                  animation: "slide_from_bottom",
+                }}
+              />
+              <Stack.Screen
+                name="player"
+                options={{
+                  presentation: "fullScreenModal",
+                  animation: "fade",
+                }}
+              />
+              <Stack.Screen
+                name="reader"
+                options={{
+                  presentation: "fullScreenModal",
+                  animation: "slide_from_right",
+                }}
+              />
+            </Stack.Group>
+          </Stack>
+        </TrackerProvider>
+      </QueryClientProvider>
+    </GestureHandlerRootView>
   );
 }

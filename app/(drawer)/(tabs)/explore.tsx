@@ -1,31 +1,38 @@
+import MediaCard, { MediaItem, MediaType } from "@/components/MediaCard";
 import { useAnimeSearch } from "@/hooks/useAnime";
 import { useDebounce } from "@/hooks/useDebounce";
 import { useLightNovelSearch } from "@/hooks/useLightNovel";
 import { useMangaSearch } from "@/hooks/useManga";
 import {
-  ANIME_GENRES,
-  getByGenre,
-  MANGA_GENRES,
-  NOVEL_GENRES,
+    ANIME_GENRES,
+    getByGenre,
+    MANGA_GENRES,
+    NOVEL_GENRES,
 } from "@/services/anilist"; // adjust path to your anilist service
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { DrawerActions } from "@react-navigation/native";
+import { useNavigation } from "expo-router";
+import React, {
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
+} from "react";
 import {
-  ActivityIndicator,
-  Animated,
-  FlatList,
-  Keyboard,
-  Platform,
-  Pressable,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    ActivityIndicator,
+    Animated,
+    FlatList,
+    Keyboard,
+    Platform,
+    Pressable,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import MediaCard, { MediaItem, MediaType } from "../../components/MediaCard";
 
 // ─── Filter tabs ──────────────────────────────────────────────────────────────
 
@@ -449,7 +456,7 @@ export default function ExploreScreen() {
   );
 
   const numColumns = viewMode === "grid" ? 2 : 1;
-  const router = useRouter();
+  const navigation = useNavigation();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -463,7 +470,7 @@ export default function ExploreScreen() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
-            onPress={() => router.push("/creators")}
+            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
             style={styles.viewToggle}
           >
             <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />

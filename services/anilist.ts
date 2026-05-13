@@ -5,33 +5,67 @@ const gql = (query: string, variables = {}) =>
   axios.post(API.ANILIST, { query, variables }).then((r) => r.data.data);
 
 // ─── Genre constants ──────────────────────────────────────────────────────────
- 
+
 export const ANIME_GENRES = [
-  "Action", "Adventure", "Comedy", "Drama", "Ecchi",
-  "Fantasy", "Horror", "Mahou Shoujo", "Mecha", "Music",
-  "Mystery", "Psychological", "Romance", "Sci-Fi", "Slice of Life",
-  "Sports", "Supernatural", "Thriller",
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Ecchi",
+  "Fantasy",
+  "Horror",
+  "Mahou Shoujo",
+  "Mecha",
+  "Music",
+  "Mystery",
+  "Psychological",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Sports",
+  "Supernatural",
+  "Thriller",
 ] as const;
- 
+
 export const MANGA_GENRES = [
-  "Action", "Adventure", "Comedy", "Drama", "Fantasy",
-  "Horror", "Mystery", "Psychological", "Romance", "Sci-Fi",
-  "Slice of Life", "Sports", "Supernatural", "Thriller",
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Horror",
+  "Mystery",
+  "Psychological",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Sports",
+  "Supernatural",
+  "Thriller",
 ] as const;
- 
+
 export const NOVEL_GENRES = [
-  "Action", "Adventure", "Comedy", "Drama", "Fantasy",
-  "Horror", "Mystery", "Romance", "Sci-Fi", "Slice of Life",
-  "Supernatural", "Thriller",
+  "Action",
+  "Adventure",
+  "Comedy",
+  "Drama",
+  "Fantasy",
+  "Horror",
+  "Mystery",
+  "Romance",
+  "Sci-Fi",
+  "Slice of Life",
+  "Supernatural",
+  "Thriller",
 ] as const;
- 
+
 export type AnimeGenre = (typeof ANIME_GENRES)[number];
 export type MangaGenre = (typeof MANGA_GENRES)[number];
 export type NovelGenre = (typeof NOVEL_GENRES)[number];
 export type AnyGenre = AnimeGenre | MangaGenre | NovelGenre;
- 
+
 // ─── Browse by genre(s) ───────────────────────────────────────────────────────
- 
+
 /**
  * Fetch media filtered by one or more genres.
  * genres: string[]  — AniList supports multi-genre AND filtering natively.
@@ -56,7 +90,7 @@ export const getByGenre = (
         ) {
           id title { romaji english }
           coverImage { large extraLarge }
-          averageScore genres episodes chapters
+          averageScore popularity genres episodes chapters
           nextAiringEpisode { episode airingAt timeUntilAiring }
           status format description bannerImage
         }
@@ -64,9 +98,9 @@ export const getByGenre = (
     }`,
     { type, genres, sort: [sort], format, perPage },
   ).then((d: any) => d.Page.media);
- 
+
 // ─── Random pick helper ───────────────────────────────────────────────────────
- 
+
 /**
  * Returns `count` random genres from the given pool (no duplicates).
  */
@@ -90,7 +124,7 @@ export const getTrending = (
         media(type: $type, sort: $sort, status: $status, format: $format, isAdult: false) {
           id title { romaji english }
           coverImage { large extraLarge }
-          averageScore genres episodes chapters
+          averageScore popularity genres episodes chapters
           nextAiringEpisode { episode airingAt timeUntilAiring }
           status format description bannerImage
           rankings { rank type context allTime season year }
@@ -110,7 +144,7 @@ export const searchAnilist = (
       Page(perPage: 20) {
         media(search: $search, type: $type, format: $format, sort: POPULARITY_DESC, isAdult: false) {
           id title { romaji english }
-          coverImage { large } averageScore genres episodes chapters
+          coverImage { large } averageScore popularity genres episodes chapters
           nextAiringEpisode { episode airingAt timeUntilAiring }
           status
         }
@@ -130,6 +164,7 @@ export const getMediaDetail = (id: number, type: "ANIME" | "MANGA" | "NOVEL") =>
         bannerImage
         description(asHtml: false)
         averageScore meanScore popularity
+        externalLinks { site url type }
         genres tags { name }
         episodes chapters volumes
         nextAiringEpisode { episode airingAt timeUntilAiring }
@@ -161,7 +196,7 @@ export const getRecommendations = (id: number, type: "ANIME" | "MANGA") =>
               id
               title { romaji english }
               coverImage { large extraLarge }
-              averageScore genres episodes chapters
+              averageScore popularity genres episodes chapters
               status format
             }
           }
@@ -174,3 +209,75 @@ export const getRecommendations = (id: number, type: "ANIME" | "MANGA") =>
       .map((n: any) => n.mediaRecommendation)
       .filter(Boolean),
   );
+
+const CREATOR_WORK_FIELDS = `
+  id
+  title { romaji english }
+  coverImage { large extraLarge }
+  type
+  format
+  averageScore
+  popularity
+  genres
+  episodes
+  chapters
+  rankings { rank type context allTime season year }
+`;
+
+export const getStudioDetail = (search: string) =>
+  gql(
+    `query($search: String) {
+      Studio(search: $search) {
+        id
+        name
+        isAnimationStudio
+        siteUrl
+        media(sort: POPULARITY_DESC) {
+          nodes {
+            ${CREATOR_WORK_FIELDS}
+          }
+        }
+      }
+    }`,
+    { search },
+  ).then((d: any) => d.Studio);
+
+export const getAuthorDetail = (search: string) =>
+  gql(
+    `query($search: String) {
+      Staff(search: $search) {
+        id
+        name { full }
+        siteUrl
+        image { large }
+        description(asHtml: false)
+        staffMedia(sort: POPULARITY_DESC) {
+          nodes {
+            ${CREATOR_WORK_FIELDS}
+          }
+        }
+      }
+    }`,
+    { search },
+  ).then((d: any) => d.Staff);
+
+export const searchCreators = (search: string) =>
+  gql(
+    `query($search: String) {
+      Page(perPage: 10) {
+        studios(search: $search, sort: SEARCH_MATCH) {
+          id
+          name
+          isAnimationStudio
+          siteUrl
+        }
+        staff(search: $search, sort: SEARCH_MATCH) {
+          id
+          name { full }
+          siteUrl
+          image { large }
+        }
+      }
+    }`,
+    { search },
+  ).then((d: any) => d.Page);

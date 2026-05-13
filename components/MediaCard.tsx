@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  Animated,
   Dimensions,
   Pressable,
   StyleSheet,
@@ -168,11 +169,96 @@ function getAnimeCountdown(item: MediaItem) {
   };
 }
 
-function ScoreBadge({ score }: { score: number }) {
-  const color = score >= 75 ? "#22C55E" : score >= 50 ? "#EAB308" : "#EF4444";
+function formatRating(score: number) {
+  return `${(score / 10).toFixed(1)}/10`;
+}
+
+function RatingBadge({ score, accent }: { score: number; accent: string }) {
   return (
-    <View style={[styles.scoreBadge, { borderColor: color }]}>
-      <Text style={[styles.scoreText, { color }]}>{score}</Text>
+    <View
+      style={[
+        styles.scoreBadge,
+        { borderColor: accent + "88", backgroundColor: accent + "18" },
+      ]}
+    >
+      <Text
+        style={[styles.scoreText, { color: accent }]}
+      >{`${formatRating(score)}`}</Text>
+    </View>
+  );
+}
+
+function Marquee({
+  children,
+  style,
+  textStyle,
+  speed = 40,
+}: {
+  children: string;
+  style?: any;
+  textStyle?: any;
+  speed?: number; // pixels per second
+}) {
+  const [containerW, setContainerW] = useState(0);
+  const [textW, setTextW] = useState(0);
+  const animatedX = React.useRef(new Animated.Value(0)).current;
+  const animRef = React.useRef<Animated.CompositeAnimation | null>(null);
+
+  useEffect(() => {
+    if (animRef.current) {
+      animRef.current.stop();
+      animatedX.setValue(0);
+      animRef.current = null;
+    }
+    if (containerW > 0 && textW > 0 && textW > containerW) {
+      const distance = textW - containerW + 16; // small padding
+      const duration = (distance / speed) * 1000;
+      const pause = 800;
+      const seq = Animated.sequence([
+        Animated.timing(animatedX, {
+          toValue: -distance,
+          duration,
+          useNativeDriver: true,
+        }),
+        Animated.timing(animatedX, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+        Animated.delay(pause),
+      ]);
+      animRef.current = Animated.loop(seq);
+      animRef.current.start();
+    }
+    return () => {
+      if (animRef.current) animRef.current.stop();
+    };
+  }, [containerW, textW, speed, animatedX]);
+
+  // If text fits, render static Text
+  if (containerW > 0 && textW > 0 && textW <= containerW) {
+    return (
+      <View
+        style={style}
+        onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}
+      >
+        <Text style={textStyle}>{children}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View
+      style={[{ overflow: "hidden" }, style]}
+      onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}
+    >
+      <Animated.Text
+        onLayout={(e) => setTextW(e.nativeEvent.layout.width)}
+        style={[textStyle, { transform: [{ translateX: animatedX }] }]}
+        numberOfLines={1}
+      >
+        {children}
+      </Animated.Text>
     </View>
   );
 }
@@ -278,35 +364,46 @@ function PortraitCard({
       </View>
       {entry && (
         <View style={styles.portraitTopRight}>
-  {item.rankings?.[0] && (
-    <RankBadge
-      rank={item.rankings[0].rank}
-      context={item.rankings[0].context}
-    />
-  )}
-  {entry && (
-    <View
-      style={[
-        styles.statusPill,
-        {
-          borderColor: STATUS_COLOR[entry.status] + "88",
-          backgroundColor: STATUS_COLOR[entry.status] + "22",
-        },
-      ]}
-    >
-      <Text style={[styles.statusText, { color: STATUS_COLOR[entry.status] }]}>
-        {entry.status}
-      </Text>
-    </View>
-  )}
-</View>
+          {item.rankings?.[0] && (
+            <RankBadge
+              rank={item.rankings[0].rank}
+              context={item.rankings[0].context}
+            />
+          )}
+          {entry && (
+            <View
+              style={[
+                styles.statusPill,
+                {
+                  borderColor: STATUS_COLOR[entry.status] + "88",
+                  backgroundColor: STATUS_COLOR[entry.status] + "22",
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.statusText,
+                  { color: STATUS_COLOR[entry.status] },
+                ]}
+              >
+                {entry.status}
+              </Text>
+            </View>
+          )}
+        </View>
       )}
       <View style={styles.portraitBottom}>
-        {item.score != null && <ScoreBadge score={item.score} />}
-        <Text style={styles.portraitTitle} numberOfLines={2}>
+        {item.score != null && (
+          <RatingBadge score={item.score} accent={accent} />
+        )}
+        <Marquee style={{}} textStyle={styles.portraitTitle}>
           {item.title}
-        </Text>
-        {meta && <Text style={styles.portraitMeta}>{meta}</Text>}
+        </Marquee>
+        {meta && (
+          <Marquee style={{}} textStyle={styles.portraitMeta}>
+            {meta}
+          </Marquee>
+        )}
         {countdown?.releaseLabel && (
           <Text
             style={[
@@ -316,7 +413,7 @@ function PortraitCard({
             numberOfLines={1}
           >
             {countdown.releaseLabel}
-            {liveCountdown ? ` · next in ${liveCountdown}` : ""}
+            {liveCountdown ? ` · Next in ${liveCountdown.remainingText}` : ""}
           </Text>
         )}
         {entry && (
@@ -344,12 +441,14 @@ function LandscapeCard({
   item: MediaItem;
   onPress: () => void;
 }) {
-  {item.rankings?.[0] && (
-  <RankBadge
-    rank={item.rankings[0].rank}
-    context={item.rankings[0].context}
-  />
-)}
+  {
+    item.rankings?.[0] && (
+      <RankBadge
+        rank={item.rankings[0].rank}
+        context={item.rankings[0].context}
+      />
+    );
+  }
   const accent = TYPE_COLOR[item.type];
   const meta = item.episodes
     ? `${item.episodes} episodes`
@@ -411,15 +510,17 @@ function LandscapeCard({
             {TYPE_LABEL[item.type]}
           </Text>
           {item.score != null && (
-            <Text style={styles.landscapeScore}>
-              ★ {(item.score / 10).toFixed(1)}
+            <Text style={[styles.landscapeScore, { color: accent }]}>
+              {`rating ${formatRating(item.score)}`}
             </Text>
           )}
         </View>
-        <Text style={styles.landscapeTitle} numberOfLines={2}>
+        <Marquee style={{}} textStyle={styles.landscapeTitle}>
           {item.title}
-        </Text>
-        <Text style={styles.landscapeMeta}>{meta}</Text>
+        </Marquee>
+        <Marquee style={{}} textStyle={styles.landscapeMeta}>
+          {meta}
+        </Marquee>
         {countdown?.releaseLabel && (
           <Text
             style={[
@@ -492,32 +593,32 @@ const styles = StyleSheet.create({
   },
 
   portraitTopRight: {
-  position: "absolute",
-  top: 10,
-  right: 10,
-  alignItems: "flex-end",
-  gap: 5,
-},
-rankBadge: {
-  paddingHorizontal: 7,
-  paddingVertical: 3,
-  borderRadius: 6,
-  backgroundColor: "rgba(0,0,0,0.55)",
-  borderWidth: 1,
-  borderColor: "rgba(255,255,255,0.15)",
-},
-rankBadgeTop: {
-  backgroundColor: "rgba(234,179,8,0.18)",
-  borderColor: "rgba(234,179,8,0.55)",
-},
-rankText: {
-  color: "rgba(255,255,255,0.8)",
-  fontSize: 10,
-  fontWeight: "700",
-},
-rankTextTop: {
-  color: "#EAB308",
-},
+    position: "absolute",
+    top: 10,
+    right: 10,
+    alignItems: "flex-end",
+    gap: 5,
+  },
+  rankBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.15)",
+  },
+  rankBadgeTop: {
+    backgroundColor: "rgba(234,179,8,0.18)",
+    borderColor: "rgba(234,179,8,0.55)",
+  },
+  rankText: {
+    color: "rgba(255,255,255,0.8)",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  rankTextTop: {
+    color: "#EAB308",
+  },
   typePill: {
     position: "absolute",
     top: 10,
@@ -554,7 +655,7 @@ rankTextTop: {
     paddingVertical: 2,
     marginBottom: 3,
   },
-  scoreText: { fontSize: 11, fontWeight: "700" },
+  scoreText: { fontSize: 11, fontWeight: "700", backgroundColor: "#fff" },
   portraitTitle: {
     color: "#fff",
     fontSize: 13,

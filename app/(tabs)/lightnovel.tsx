@@ -2,7 +2,8 @@ import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import React, { useState } from "react";
+import { useRouter } from "expo-router";
+import { useState } from "react";
 import {
     ActivityIndicator,
     FlatList,
@@ -41,6 +42,7 @@ function normalise(item: any): MediaItem {
 export default function LightNovelScreen() {
   const [filter, setFilter] = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const router = useRouter();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["lightnovel", filter],
@@ -66,16 +68,24 @@ export default function LightNovelScreen() {
           <Text style={styles.headerSub}>Track your</Text>
           <Text style={styles.headerTitle}>Light Novels</Text>
         </View>
-        <Pressable
-          onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
-          style={styles.viewBtn}
-        >
-          <Ionicons
-            name={viewMode === "grid" ? "list-outline" : "grid-outline"}
-            size={20}
-            color="rgba(255,255,255,0.6)"
-          />
-        </Pressable>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Pressable
+            onPress={() => router.push("/creators")}
+            style={styles.viewBtn}
+          >
+            <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
+          </Pressable>
+          <Pressable
+            onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
+            style={styles.viewBtn}
+          >
+            <Ionicons
+              name={viewMode === "grid" ? "list-outline" : "grid-outline"}
+              size={20}
+              color="rgba(255,255,255,0.6)"
+            />
+          </Pressable>
+        </View>
       </View>
 
       <FlatList
