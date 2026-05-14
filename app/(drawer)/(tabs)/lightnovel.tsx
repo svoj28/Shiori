@@ -2,208 +2,293 @@ import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
+  Animated,
+  Dimensions,
   FlatList,
   Pressable,
+  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
   View,
 } from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-const ACCENT = "#D4860A";
+const { width: SCREEN_W } = Dimensions.get("window");
+
+const COLORS = {
+  bg:           "#0D0A06",
+  surface:      "#1A1408",
+  card:         "#1E1A0C",
+  accent:       "#D4860A",
+  accentLight:  "#F5B040",
+  accentGlow:   "rgba(212,134,10,0.2)",
+  text:         "#FFFFFF",
+  textSub:      "rgba(255,255,255,0.55)",
+  textMuted:    "rgba(255,255,255,0.28)",
+  border:       "rgba(255,255,255,0.07)",
+  borderStrong: "rgba(212,134,10,0.38)",
+};
+
 const FILTERS = ["Trending", "Popular", "Top Rated", "Ongoing"] as const;
 type Filter = (typeof FILTERS)[number];
 
-const SORT_MAP: Record<Filter, string> = {
-  Trending: "TRENDING_DESC",
-  Popular: "POPULARITY_DESC",
-  "Top Rated": "SCORE_DESC",
-  Ongoing: "POPULARITY_DESC",
+const FILTER_META: Record<Filter, { icon: string; sort: string }> = {
+  Trending:    { icon: "flame-outline",   sort: "TRENDING_DESC"   },
+  Popular:     { icon: "people-outline",  sort: "POPULARITY_DESC" },
+  "Top Rated": { icon: "ribbon-outline",  sort: "SCORE_DESC"      },
+  Ongoing:     { icon: "book-outline",    sort: "POPULARITY_DESC" },
 };
 
 function normalise(item: any): MediaItem {
   return {
-    id: item.id,
-    title: item.title?.english ?? item.title?.romaji ?? "Unknown",
+    id:         item.id,
+    title:      item.title?.english ?? item.title?.romaji ?? "Unknown",
     coverImage: item.coverImage?.large ?? "",
-    type: "lightnovel",
-    score: item.averageScore,
-    chapters: item.chapters,
-    genres: item.genres ?? [],
-    raw: item,
+    type:       "lightnovel",
+    score:      item.averageScore,
+    chapters:   item.chapters,
+    genres:     item.genres ?? [],
+    raw:        item,
   };
 }
 
+// ─── Skeleton Card ────────────────────────────────────────────────────────────
+function SkeletonCard({ variant }: { variant: "portrait" | "landscape" }) {
+  const shimmer = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(shimmer, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(shimmer, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ])
+    ).start();
+  }, []);
+  const opacity = shimmer.interpolate({ inputRange: [0, 1], outputRange: [0.28, 0.65] });
+
+  if (variant === "landscape") {
+    return (
+      <View style={sk.landscapeWrap}>
+        <Animated.View style={[sk.landscapeImg, { opacity }]} />
+        <View style={sk.landscapeBody}>
+          <Animated.View style={[sk.lineWide,   { opacity }]} />
+          <Animated.View style={[sk.lineNarrow, { opacity, marginTop: 6 }]} />
+          <Animated.View style={[sk.lineThin,   { opacity, marginTop: 6 }]} />
+        </View>
+      </View>
+    );
+  }
+  return (
+    <View style={sk.portraitWrap}>
+      <Animated.View style={[sk.portraitImg, { opacity }]} />
+      <Animated.View style={[sk.lineWide,    { opacity, marginTop: 8 }]} />
+      <Animated.View style={[sk.lineNarrow,  { opacity, marginTop: 4 }]} />
+    </View>
+  );
+}
+
+const sk = StyleSheet.create({
+  portraitWrap:  { flex: 1, margin: 6 },
+  portraitImg:   { width: "100%", aspectRatio: 2 / 3, borderRadius: 12, backgroundColor: COLORS.card },
+  landscapeWrap: { flexDirection: "row", marginHorizontal: 16, marginBottom: 12, backgroundColor: COLORS.card, borderRadius: 14, overflow: "hidden" },
+  landscapeImg:  { width: 80, height: 110, backgroundColor: COLORS.surface },
+  landscapeBody: { flex: 1, padding: 12, justifyContent: "center" },
+  lineWide:      { height: 13, borderRadius: 6, backgroundColor: COLORS.surface, width: "70%" },
+  lineNarrow:    { height: 11, borderRadius: 6, backgroundColor: COLORS.surface, width: "45%" },
+  lineThin:      { height: 10, borderRadius: 6, backgroundColor: COLORS.surface, width: "30%" },
+});
+
+// ─── Filter Pill ──────────────────────────────────────────────────────────────
+function FilterPill({ label, active, onPress }: { label: Filter; active: boolean; onPress: () => void }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  const meta  = FILTER_META[label];
+
+  const handlePress = () => {
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 0.92, duration: 80,  useNativeDriver: true }),
+      Animated.timing(scale, { toValue: 1,    duration: 120, useNativeDriver: true }),
+    ]).start();
+    onPress();
+  };
+
+  return (
+    <Pressable onPress={handlePress}>
+      <Animated.View style={[pill.wrap, active && pill.wrapActive, { transform: [{ scale }] }]}>
+        {active && (
+          <LinearGradient
+            colors={[COLORS.accent, COLORS.accentLight]}
+            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+            style={StyleSheet.absoluteFill}
+          />
+        )}
+        <Ionicons name={meta.icon as any} size={13} color={active ? "#fff" : COLORS.textMuted} style={{ marginRight: 5 }} />
+        <Text style={[pill.text, active && pill.textActive]}>{label}</Text>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+const pill = StyleSheet.create({
+  wrap:       { flexDirection: "row", alignItems: "center", paddingHorizontal: 14, paddingVertical: 8, borderRadius: 24, borderWidth: 1, borderColor: COLORS.border, backgroundColor: "rgba(255,255,255,0.04)", overflow: "hidden" },
+  wrapActive: { borderColor: "transparent" },
+  text:       { color: COLORS.textMuted, fontSize: 13, fontWeight: "500", letterSpacing: 0.2 },
+  textActive: { color: "#fff", fontWeight: "700" },
+});
+
+// ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function LightNovelScreen() {
-  const [filter, setFilter] = useState<Filter>("Trending");
+  const [filter,   setFilter]   = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["lightnovel", filter],
-    queryFn: () =>
-      getTrending(
-        "MANGA",
-        SORT_MAP[filter],
-        filter === "Ongoing" ? "RELEASING" : undefined,
-        "NOVEL",
-      ),
+    queryFn:  () => getTrending("MANGA", FILTER_META[filter].sort, filter === "Ongoing" ? "RELEASING" : undefined, "NOVEL"),
   });
 
   const items: MediaItem[] = (data ?? [])
     .filter((item: any) => filter !== "Ongoing" || item.status === "RELEASING")
     .map(normalise);
 
-  return (
-    <SafeAreaView style={styles.safe} edges={["top"]}>
-      <StatusBar barStyle="light-content" />
+  useEffect(() => {
+    if (!isLoading) {
+      fadeAnim.setValue(0);
+      Animated.timing(fadeAnim, { toValue: 1, duration: 320, useNativeDriver: true }).start();
+    }
+  }, [isLoading, filter]);
 
-      <View style={styles.header}>
+  const numColumns     = viewMode === "grid" ? 2 : 1;
+  const SKELETON_COUNT = viewMode === "grid" ? 6 : 5;
+  const skeletonData   = Array.from({ length: SKELETON_COUNT }, (_, i) => i);
+
+  const ListHeader = (
+    <>
+      {/* Header */}
+      <View style={s.header}>
         <View>
-          <Text style={styles.headerSub}>Track your</Text>
-          <Text style={styles.headerTitle}>Light Novels</Text>
+          <Text style={s.eyebrow}>DISCOVER</Text>
+          <Text style={s.title}>Light Novels</Text>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Pressable
-            onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
-            style={styles.viewBtn}
-          >
-            <Ionicons
-              name={viewMode === "grid" ? "list-outline" : "grid-outline"}
-              size={20}
-              color="rgba(255,255,255,0.6)"
-            />
+        <View style={s.actions}>
+          {!isLoading && !isError && (
+            <View style={s.badge}>
+              <Text style={s.badgeText}>{items.length}</Text>
+            </View>
+          )}
+          <Pressable onPress={() => setViewMode(v => v === "grid" ? "list" : "grid")} style={s.iconBtn}>
+            <Ionicons name={viewMode === "grid" ? "list-outline" : "grid-outline"} size={18} color={COLORS.textSub} />
           </Pressable>
         </View>
       </View>
 
-      <FlatList<Filter>
-        data={FILTERS as unknown as Filter[]}
+      {/* Pills — ScrollView instead of FlatList */}
+      <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
-        keyExtractor={(f) => f}
-        contentContainerStyle={styles.filtersContainer}
-        style={styles.filtersRow}
-        renderItem={({ item: f }) => {
-          const active = filter === f;
-          return (
-            <Pressable
-              onPress={() => setFilter(f)}
-              style={[
-                styles.pill,
-                active && { backgroundColor: ACCENT, borderColor: ACCENT },
-              ]}
-            >
-              <Text
-                style={[
-                  styles.pillText,
-                  active && { color: "#fff", fontWeight: "600" },
-                ]}
-              >
-                {f}
-              </Text>
-            </Pressable>
-          );
-        }}
-      />
+        contentContainerStyle={s.pillsContainer}
+        style={s.pillsRow}
+      >
+        {(FILTERS as unknown as Filter[]).map(f => (
+          <FilterPill key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
+        ))}
+      </ScrollView>
 
-      {isLoading ? (
-        <View style={styles.center}>
-          <ActivityIndicator color={ACCENT} size="large" />
-          <Text style={[styles.loadingText, { color: ACCENT }]}>
-            Loading novels…
+      <View style={s.divider} />
+
+      {/* Skeleton */}
+      {isLoading && (
+        <FlatList
+          key={`skeleton-${viewMode}`}
+          data={skeletonData}
+          keyExtractor={i => String(i)}
+          numColumns={numColumns}
+          scrollEnabled={false}
+          contentContainerStyle={s.listContent}
+          renderItem={() => <SkeletonCard variant={viewMode === "grid" ? "portrait" : "landscape"} />}
+        />
+      )}
+
+      {/* Error */}
+      {isError && (
+        <View style={s.emptyState}>
+          <View style={s.emptyIconWrap}>
+            <Ionicons name="cloud-offline-outline" size={36} color={COLORS.accentLight} />
+          </View>
+          <Text style={s.emptyTitle}>Couldn't load novels</Text>
+          <Text style={s.emptyBody}>Check your connection and try again.</Text>
+        </View>
+      )}
+
+      {/* Results label */}
+      {!isLoading && !isError && items.length > 0 && (
+        <View style={s.listHeader}>
+          <Text style={s.listHeaderText}>
+            {filter} · <Text style={{ color: COLORS.accentLight }}>{items.length} titles</Text>
           </Text>
         </View>
-      ) : isError ? (
-        <View style={styles.center}>
-          <Ionicons
-            name="alert-circle-outline"
-            size={48}
-            color="rgba(255,255,255,0.3)"
-          />
-          <Text style={styles.errorText}>
-            Failed to load. Check your connection.
-          </Text>
-        </View>
-      ) : (
-        <FlatList<MediaItem>
+      )}
+    </>
+  );
+
+  return (
+    <View style={s.root}>
+      <StatusBar barStyle="light-content" translucent backgroundColor="transparent" />
+      <View style={s.glowCircle} pointerEvents="none" />
+
+      <SafeAreaView style={s.safe} edges={["top"]}>
+        <Animated.FlatList
           key={viewMode}
-          data={items}
-          keyExtractor={(i) => String(i.id)}
-          numColumns={viewMode === "grid" ? 2 : 1}
-          contentContainerStyle={styles.grid}
+          data={!isLoading && !isError ? items : []}
+          keyExtractor={i => String((i as MediaItem).id)}
+          numColumns={numColumns}
+          contentContainerStyle={s.listContent}
           showsVerticalScrollIndicator={false}
+          style={{ opacity: fadeAnim }}
+          ListHeaderComponent={ListHeader}
           renderItem={({ item }) => (
             <MediaCard
-              item={item}
+              item={item as MediaItem}
               variant={viewMode === "grid" ? "portrait" : "landscape"}
-              style={viewMode === "grid" ? styles.gridCard : styles.listCard}
+              style={viewMode === "grid" ? s.gridCard : s.listCard}
             />
           )}
           ListEmptyComponent={
-            <View style={styles.center}>
-              <Text style={styles.errorText}>No results found.</Text>
-            </View>
+            !isLoading && !isError ? (
+              <View style={s.emptyState}>
+                <Text style={s.emptyTitle}>No results found.</Text>
+              </View>
+            ) : null
           }
         />
-      )}
-    </SafeAreaView>
+      </SafeAreaView>
+    </View>
   );
 }
 
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#0C0C18" },
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 8,
-    paddingBottom: 14,
-  },
-  headerSub: {
-    color: "rgba(255,255,255,0.4)",
-    fontSize: 12,
-    letterSpacing: 0.3,
-  },
-  headerTitle: {
-    color: "#fff",
-    fontSize: 28,
-    fontWeight: "700",
-    letterSpacing: -0.5,
-  },
-  viewBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: "rgba(255,255,255,0.07)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  filtersRow: { flexGrow: 0, marginBottom: 12 },
-  filtersContainer: { paddingHorizontal: 16, gap: 8 },
-  pill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,0.15)",
-    backgroundColor: "rgba(255,255,255,0.05)",
-  },
-  pillText: { color: "rgba(255,255,255,0.5)", fontSize: 13 },
-  grid: { paddingHorizontal: 12, paddingBottom: 100 },
-  gridCard: { flex: 1, margin: 6 },
-  listCard: { marginHorizontal: 12 },
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    paddingBottom: 60,
-  },
-  loadingText: { fontSize: 14, fontWeight: "500" },
-  errorText: { color: "rgba(255,255,255,0.4)", fontSize: 14 },
+const s = StyleSheet.create({
+  root:          { flex: 1, backgroundColor: COLORS.bg },
+  safe:          { flex: 1 },
+  glowCircle:    { position: "absolute", top: -80, left: SCREEN_W / 2 - 160, width: 320, height: 320, borderRadius: 160, backgroundColor: COLORS.accentGlow, opacity: 0.55 },
+  header:        { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", paddingHorizontal: 22, paddingTop: 70, paddingBottom: 16 },
+  eyebrow:       { color: COLORS.accent, fontSize: 10, fontWeight: "800", letterSpacing: 2.5, marginBottom: 2 },
+  title:         { color: COLORS.text, fontSize: 32, fontWeight: "800", letterSpacing: -0.8, lineHeight: 40 },
+  actions:       { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 4 },
+  badge:         { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: COLORS.accentGlow, borderWidth: 1, borderColor: COLORS.borderStrong },
+  badgeText:     { color: COLORS.accentLight, fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
+  iconBtn:       { width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },
+  pillsRow:      { flexGrow: 0 },
+  pillsContainer:{ paddingHorizontal: 18, gap: 8, paddingBottom: 2, flexDirection: "row" },
+  divider:       { height: 1, backgroundColor: COLORS.border, marginTop: 14 },
+  listContent:   { paddingHorizontal: 10, paddingTop: 6, paddingBottom: 120 },
+  listHeader:    { paddingHorizontal: 6, paddingVertical: 12 },
+  listHeaderText:{ color: COLORS.textMuted, fontSize: 12, fontWeight: "600", letterSpacing: 0.3, textTransform: "uppercase" },
+  gridCard:      { flex: 1, margin: 6 },
+  listCard:      { marginHorizontal: 6, marginBottom: 10 },
+  emptyState:    { alignItems: "center", justifyContent: "center", paddingTop: 80, gap: 10 },
+  emptyIconWrap: { width: 72, height: 72, borderRadius: 36, backgroundColor: COLORS.accentGlow, alignItems: "center", justifyContent: "center", marginBottom: 4 },
+  emptyTitle:    { color: COLORS.textSub, fontSize: 17, fontWeight: "700" },
+  emptyBody:     { color: COLORS.textMuted, fontSize: 14, textAlign: "center", paddingHorizontal: 40 },
 });
