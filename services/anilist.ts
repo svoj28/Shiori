@@ -232,7 +232,7 @@ export const getStudioDetail = (search: string) =>
         name
         isAnimationStudio
         siteUrl
-        media(sort: POPULARITY_DESC) {
+        media(sort: POPULARITY_DESC, perPage: 100) {
           nodes {
             ${CREATOR_WORK_FIELDS}
           }
@@ -251,7 +251,7 @@ export const getAuthorDetail = (search: string) =>
         siteUrl
         image { large }
         description(asHtml: false)
-        staffMedia(sort: POPULARITY_DESC) {
+        staffMedia(sort: POPULARITY_DESC, perPage: 100) {
           nodes {
             ${CREATOR_WORK_FIELDS}
           }
@@ -281,3 +281,172 @@ export const searchCreators = (search: string) =>
     }`,
     { search },
   ).then((d: any) => d.Page);
+
+// Helper to add delay between requests
+const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// ─── Search Functions (On-Demand, No Rate Limits) ──────────────────────────────
+
+export const searchStudios = (search: string) =>
+  gql(
+    `query($search: String) {
+      Page(perPage: 20) {
+        studios(search: $search, sort: SEARCH_MATCH) {
+          id
+          name
+          isAnimationStudio
+          siteUrl
+        }
+      }
+    }`,
+    { search },
+  ).then((d: any) => d.Page?.studios || []);
+
+export const searchAuthors = (search: string) =>
+  gql(
+    `query($search: String) {
+      Page(perPage: 20) {
+        staff(search: $search, sort: SEARCH_MATCH) {
+          id
+          name { full }
+          siteUrl
+          image { large }
+          staffMedia(sort: POPULARITY_DESC, perPage: 5) {
+            nodes {
+              id
+              title { romaji english userPreferred }
+              type
+              format
+            }
+          }
+        }
+      }
+    }`,
+    { search },
+  ).then((d: any) => {
+    // Filter out authors with no works
+    return (d.Page?.staff || []).filter(
+      (staff: any) =>
+        staff.staffMedia?.nodes && staff.staffMedia.nodes.length > 0,
+    );
+  });
+
+// ─── Legacy Pagination Functions (Use searchStudios/searchAuthors instead) ──────
+
+export const getAllStudios = async () => {
+  try {
+    let allStudios: any[] = [];
+    let currentPage = 1;
+    let hasNextPage = true;
+    const maxRetries = 3;
+
+    while (hasNextPage) {
+      let retries = 0;
+      let result;
+
+      while (retries < maxRetries) {
+        try {
+          result = await gql(
+            `query($page: Int, $perPage: Int) {
+              Page(page: $page, perPage: $perPage) {
+                pageInfo {
+                  currentPage
+                  hasNextPage
+                  lastPage
+                  total
+                }
+                studios {
+                  id
+                  name
+                  isAnimationStudio
+                  siteUrl
+                }
+              }
+            }`,
+            { page: currentPage, perPage: 50 },
+          ).then((d: any) => d.Page);
+          break;
+        } catch (error) {
+          retries++;
+          if (retries >= maxRetries) throw error;
+          await delay(2000 * retries);
+        }
+      }
+
+      if (result?.studios) {
+        allStudios = [...allStudios, ...result.studios];
+      }
+
+      hasNextPage = result?.pageInfo?.hasNextPage ?? false;
+      currentPage++;
+
+      if (hasNextPage) {
+        await delay(1500);
+      }
+    }
+
+    return { studios: allStudios };
+  } catch (error) {
+    console.error("Error fetching studios:", error);
+    throw error;
+  }
+};
+
+export const getAllAuthors = async () => {
+  try {
+    let allStaff: any[] = [];
+    let currentPage = 1;
+    let hasNextPage = true;
+    const maxRetries = 3;
+
+    while (hasNextPage) {
+      let retries = 0;
+      let result;
+
+      while (retries < maxRetries) {
+        try {
+          result = await gql(
+            `query($page: Int, $perPage: Int) {
+              Page(page: $page, perPage: $perPage) {
+                pageInfo {
+                  currentPage
+                  hasNextPage
+                  lastPage
+                  total
+                }
+                staff {
+                  id
+                  name { full }
+                  siteUrl
+                  image { large }
+                }
+              }
+            }`,
+            { page: currentPage, perPage: 50 },
+          ).then((d: any) => d.Page);
+          break;
+        } catch (error) {
+          retries++;
+          if (retries >= maxRetries) throw error;
+          await delay(2000 * retries);
+        }
+      }
+
+      if (result?.staff) {
+        allStaff = [...allStaff, ...result.staff];
+      }
+
+      hasNextPage = result?.pageInfo?.hasNextPage ?? false;
+      currentPage++;
+
+      if (hasNextPage) {
+        await delay(1500);
+      }
+    }
+
+    return { staff: allStaff };
+  } catch (error) {
+    console.error("Error fetching authors:", error);
+    throw error;
+  }
+};

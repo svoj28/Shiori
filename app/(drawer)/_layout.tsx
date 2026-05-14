@@ -1,22 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { DrawerNavigationProp } from "@react-navigation/drawer";
-import { useNavigation } from "expo-router";
+import { DrawerToggleButton } from "@react-navigation/drawer";
 import { Drawer } from "expo-router/drawer";
-import { Pressable } from "react-native";
-
-type IoniconName = React.ComponentProps<typeof Ionicons>["name"];
-
-function DrawerMenuButton() {
-  const navigation = useNavigation<DrawerNavigationProp<any>>();
-  return (
-    <Pressable
-      onPress={() => navigation.toggleDrawer()}
-      style={{ paddingLeft: 16, paddingRight: 16 }}
-    >
-      <Ionicons name="menu" size={24} color="#fff" />
-    </Pressable>
-  );
-}
 
 export default function DrawerLayout() {
   return (
@@ -25,7 +9,7 @@ export default function DrawerLayout() {
         headerShown: true,
         headerStyle: { backgroundColor: "#0C0C18" },
         headerTitleStyle: { color: "#fff", fontWeight: "800" },
-        headerLeft: DrawerMenuButton,
+        headerLeft: () => <DrawerToggleButton tintColor="#fff" />,
         drawerActiveTintColor: "#ffffff",
         drawerInactiveTintColor: "rgba(255,255,255,0.45)",
         drawerStyle: { backgroundColor: "#10101A" },
@@ -36,7 +20,6 @@ export default function DrawerLayout() {
         name="(tabs)"
         options={{
           title: "Browse",
-          headerShown: false,
           drawerIcon: ({ color, size }) => (
             <Ionicons name="grid-outline" size={size ?? 20} color={color} />
           ),
@@ -61,12 +44,18 @@ export default function DrawerLayout() {
         }}
       />
       <Drawer.Screen
+        name="all-creators"
+        options={{
+          title: "Browse All Studios & Authors",
+          drawerIcon: ({ color, size }) => (
+            <Ionicons name="list-outline" size={size ?? 20} color={color} />
+          ),
+        }}
+      />
+      <Drawer.Screen
         name="creators"
         options={{
-          title: "Studios & Authors",
-          drawerIcon: ({ color, size }) => (
-            <Ionicons name="people-outline" size={size ?? 20} color={color} />
-          ),
+          drawerItemStyle: { height: 0 },
         }}
       />
       <Drawer.Screen

@@ -1,18 +1,16 @@
 import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
-import { DrawerActions } from "@react-navigation/native";
-import { useNavigation } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Pressable,
-    StatusBar,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -44,7 +42,6 @@ function normalise(item: any): MediaItem {
 export default function AnimeScreen() {
   const [filter, setFilter] = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const navigation = useNavigation();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["anime", filter],
@@ -64,12 +61,6 @@ export default function AnimeScreen() {
           <Text style={styles.headerTitle}>Anime</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Pressable
-            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
-            style={styles.viewBtn}
-          >
-            <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
-          </Pressable>
           <View style={[styles.accentDot, { backgroundColor: ACCENT }]} />
           <Pressable
             onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}

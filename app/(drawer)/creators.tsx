@@ -69,8 +69,16 @@ export default function CreatorsScreen() {
           style={styles.actionBtn}
           onPress={() => setDirectoryVisible(true)}
         >
-          <Ionicons name="albums-outline" size={18} color="#fff" />
-          <Text style={styles.actionText}>Open directory</Text>
+          <Ionicons name="search-outline" size={18} color="#fff" />
+          <Text style={styles.actionText}>Quick search</Text>
+        </Pressable>
+
+        <Pressable
+          style={styles.actionBtn}
+          onPress={() => router.push("/all-creators")}
+        >
+          <Ionicons name="list-outline" size={18} color="#fff" />
+          <Text style={styles.actionText}>Browse all studios & authors</Text>
         </Pressable>
 
         <Pressable

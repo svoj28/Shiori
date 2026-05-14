@@ -58,7 +58,7 @@ export default function ProfileScreen() {
             <Text style={styles.linkText}>Library</Text>
             <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />
           </Pressable>
-          <Pressable style={styles.linkRow} onPress={() => router.push("/creators")}>
+          <Pressable style={styles.linkRow} onPress={() => router.push("/all-creators")}>
             <Ionicons name="people-outline" size={18} color={ACCENT} />
             <Text style={styles.linkText}>Studios & Authors</Text>
             <Ionicons name="chevron-forward" size={16} color="rgba(255,255,255,0.35)" />

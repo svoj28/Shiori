@@ -1,18 +1,16 @@
 import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
-import { DrawerActions } from "@react-navigation/native";
-import { useNavigation } from "expo-router";
 import { useQuery } from "@tanstack/react-query";
 import React, { useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Pressable,
-    StatusBar,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -44,7 +42,6 @@ function normaliseAnilist(item: any): MediaItem {
 export default function MangaScreen() {
   const [filter, setFilter] = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const navigation = useNavigation();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["manga", filter],
@@ -57,7 +54,7 @@ export default function MangaScreen() {
   });
 
   const items: MediaItem[] = (data ?? [])
-    .filter((item) => filter !== "Ongoing" || item.status === "RELEASING")
+    .filter((item: any) => filter !== "Ongoing" || item.status === "RELEASING")
     .map(normaliseAnilist);
 
   return (
@@ -72,12 +69,6 @@ export default function MangaScreen() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
-            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
-            style={styles.viewBtn}
-          >
-            <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
-          </Pressable>
-          <Pressable
             onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
             style={styles.viewBtn}
           >
@@ -91,7 +82,7 @@ export default function MangaScreen() {
       </View>
 
       {/* Filter pills */}
-      <FlatList
+      <FlatList<Filter>
         data={FILTERS as unknown as Filter[]}
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -141,7 +132,7 @@ export default function MangaScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
+        <FlatList<MediaItem>
           key={viewMode}
           data={items}
           keyExtractor={(i) => String(i.id)}

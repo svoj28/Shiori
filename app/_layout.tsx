@@ -17,7 +17,10 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <QueryClientProvider client={queryClient}>
         <TrackerProvider>
-          <Stack screenOptions={{ headerShown: false }}>
+          <Stack
+            initialRouteName="(drawer)"
+            screenOptions={{ headerShown: false }}
+          >
             <Stack.Group screenOptions={{ headerShown: false }}>
               <Stack.Screen name="(drawer)" options={{ headerShown: false }} />
             </Stack.Group>

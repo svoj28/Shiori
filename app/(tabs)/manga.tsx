@@ -2,16 +2,15 @@ import MediaCard, { MediaItem } from "@/components/MediaCard";
 import { getTrending } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
-import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    ActivityIndicator,
-    FlatList,
-    Pressable,
-    StatusBar,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  FlatList,
+  Pressable,
+  StatusBar,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -43,7 +42,6 @@ function normaliseAnilist(item: any): MediaItem {
 export default function MangaScreen() {
   const [filter, setFilter] = useState<Filter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
-  const router = useRouter();
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ["manga", filter],
@@ -56,7 +54,10 @@ export default function MangaScreen() {
   });
 
   const items: MediaItem[] = (data ?? [])
-    .filter((item) => filter !== "Ongoing" || item.status === "RELEASING")
+    .filter(
+      (item: { status?: string }) =>
+        filter !== "Ongoing" || item.status === "RELEASING",
+    )
     .map(normaliseAnilist);
 
   return (
@@ -70,12 +71,6 @@ export default function MangaScreen() {
           <Text style={styles.headerTitle}>Manga</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Pressable
-            onPress={() => router.push("/creators")}
-            style={styles.viewBtn}
-          >
-            <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
-          </Pressable>
           <Pressable
             onPress={() => setViewMode((v) => (v === "grid" ? "list" : "grid"))}
             style={styles.viewBtn}

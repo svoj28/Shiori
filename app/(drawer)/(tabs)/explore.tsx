@@ -10,8 +10,6 @@ import {
     NOVEL_GENRES,
 } from "@/services/anilist"; // adjust path to your anilist service
 import { Ionicons } from "@expo/vector-icons";
-import { DrawerActions } from "@react-navigation/native";
-import { useNavigation } from "expo-router";
 import React, {
     useCallback,
     useEffect,
@@ -456,7 +454,6 @@ export default function ExploreScreen() {
   );
 
   const numColumns = viewMode === "grid" ? 2 : 1;
-  const navigation = useNavigation();
 
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
@@ -469,12 +466,6 @@ export default function ExploreScreen() {
           <Text style={styles.headerTitle}>Discover</Text>
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <Pressable
-            onPress={() => navigation.dispatch(DrawerActions.toggleDrawer())}
-            style={styles.viewToggle}
-          >
-            <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
-          </Pressable>
           <Pressable
             onPress={() => setView((v) => (v === "grid" ? "list" : "grid"))}
             style={styles.viewToggle}

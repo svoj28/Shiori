@@ -463,7 +463,7 @@ export default function ExploreScreen() {
         </View>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <Pressable
-            onPress={() => router.push("/creators")}
+            onPress={() => router.push("/all-creators")}
             style={styles.viewToggle}
           >
             <Ionicons name="menu" size={20} color="rgba(255,255,255,0.6)" />
