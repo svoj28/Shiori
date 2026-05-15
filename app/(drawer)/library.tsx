@@ -8,6 +8,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React, { useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
   Platform,
   Pressable,
@@ -31,18 +32,26 @@ const STATUS_META: Record<
   TrackerStatus,
   { color: string; icon: keyof typeof Ionicons.glyphMap }
 > = {
-  None:        { color: "#64748B", icon: "ellipse-outline" },
-  Watching:    { color: "#38BDF8", icon: "play-circle-outline" },
-  Completed:   { color: "#22C55E", icon: "checkmark-circle-outline" },
-  Rewatching:  { color: "#A78BFA", icon: "refresh-circle-outline" },
-  Planning:    { color: "#F59E0B", icon: "time-outline" },
+  None: { color: "#64748B", icon: "ellipse-outline" },
+  Watching: { color: "#38BDF8", icon: "play-circle-outline" },
+  Completed: { color: "#22C55E", icon: "checkmark-circle-outline" },
+  Rewatching: { color: "#A78BFA", icon: "refresh-circle-outline" },
+  Planning: { color: "#F59E0B", icon: "time-outline" },
   Considering: { color: "#F97316", icon: "help-circle-outline" },
-  Paused:      { color: "#EF4444", icon: "pause-circle-outline" },
+  Paused: { color: "#EF4444", icon: "pause-circle-outline" },
 };
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function SummaryTile({ label, value, accent }: { label: string; value: string; accent: string }) {
+function SummaryTile({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent: string;
+}) {
   return (
     <View style={s.summaryTile}>
       <Text style={[s.summaryValue, { color: accent }]}>{value}</Text>
@@ -51,7 +60,13 @@ function SummaryTile({ label, value, accent }: { label: string; value: string; a
   );
 }
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHeader({
+  title,
+  subtitle,
+}: {
+  title: string;
+  subtitle?: string;
+}) {
   return (
     <View style={s.sectionHdr}>
       <Text style={s.sectionTitle}>{title}</Text>
@@ -117,7 +132,12 @@ function StatusGrid({
             ]}
           >
             <Text style={[s.statusCount, { color }]}>{counts[status]}</Text>
-            <Text style={[s.statusLabel, { color: color + (isSelected ? "FF" : "CC") }]}>
+            <Text
+              style={[
+                s.statusLabel,
+                { color: color + (isSelected ? "FF" : "CC") },
+              ]}
+            >
               {status}
             </Text>
           </Pressable>
@@ -167,7 +187,10 @@ function CollectionsTab({
           onChangeText={setName}
           onSubmitEditing={create}
           returnKeyType="done"
-          style={[s.collInput, name.length > 0 && { borderColor: ACCENT + "50" }]}
+          style={[
+            s.collInput,
+            name.length > 0 && { borderColor: ACCENT + "50" },
+          ]}
         />
         <Pressable
           onPress={create}
@@ -191,9 +214,15 @@ function CollectionsTab({
           {tracker.collections.map((collection) => (
             <Pressable
               key={collection.name}
-              style={({ pressed }) => [s.collCard, pressed && { opacity: 0.78 }]}
+              style={({ pressed }) => [
+                s.collCard,
+                pressed && { opacity: 0.78 },
+              ]}
               onPress={() =>
-                router.push({ pathname: "/collection", params: { name: collection.name } })
+                router.push({
+                  pathname: "/collection",
+                  params: { name: collection.name },
+                })
               }
             >
               {/* Top row: name + count badge */}
@@ -209,7 +238,10 @@ function CollectionsTab({
               {/* Preview titles */}
               {collection.items.length > 0 ? (
                 <Text style={s.collHint} numberOfLines={2}>
-                  {collection.items.slice(0, 3).map((i) => i.title).join(" · ")}
+                  {collection.items
+                    .slice(0, 3)
+                    .map((i) => i.title)
+                    .join(" · ")}
                 </Text>
               ) : (
                 <Text style={s.collEmpty}>No items yet</Text>
@@ -217,13 +249,20 @@ function CollectionsTab({
 
               {/* Footer: arrow + delete */}
               <View style={s.collFooter}>
-                <Ionicons name="chevron-forward" size={14} color="rgba(255,255,255,0.18)" />
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color="rgba(255,255,255,0.18)"
+                />
                 <Pressable
-                  onPress={(e) => { e.stopPropagation(); onConfirmDelete(collection.name); }}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    onConfirmDelete(collection.name);
+                  }}
                   hitSlop={12}
                   style={s.deleteBtn}
                 >
-                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                  <Ionicons name="close-outline" size={13} color="#EF4444" />
                   <Text style={s.deleteBtnText}>Delete</Text>
                 </Pressable>
               </View>
@@ -256,12 +295,12 @@ function DeleteModal({
     <View style={s.modalOverlay}>
       <View style={s.modalCard}>
         <View style={s.modalIconWrap}>
-          <Ionicons name="trash-outline" size={22} color="#EF4444" />
+          <Ionicons name="close-outline" size={22} color="#EF4444" />
         </View>
         <Text style={s.modalTitle}>Delete collection?</Text>
         <Text style={s.modalBody}>
-          <Text style={{ color: "#fff", fontWeight: "700" }}>"{name}"</Text>
-          {" "}will be permanently removed. Your tracked titles won't be affected.
+          <Text style={{ color: "#fff", fontWeight: "700" }}>"{name}"</Text>{" "}
+          will be permanently removed. Your tracked titles won't be affected.
         </Text>
         <View style={s.modalActions}>
           <Pressable onPress={onCancel} style={[s.modalBtn, s.modalCancel]}>
@@ -287,15 +326,119 @@ function Toast({ message }: { message: string }) {
   );
 }
 
+function TrackedEntryCard({
+  item,
+  selectionMode,
+  selected,
+  onToggleSelect,
+  onRemove,
+}: {
+  item: ReturnType<typeof useTracker>["entries"][number];
+  selectionMode: boolean;
+  selected: boolean;
+  onToggleSelect: (id: string) => void;
+  onRemove: (item: ReturnType<typeof useTracker>["entries"][number]) => void;
+}) {
+  return (
+    <View style={s.entryWrap}>
+      <MediaCard
+        item={item}
+        variant="landscape"
+        style={s.entryCard}
+        onPress={selectionMode ? () => onToggleSelect(item.id) : undefined}
+      />
+
+      {selectionMode ? (
+        <Pressable
+          onPress={() => onToggleSelect(item.id)}
+          style={[s.selectionBadge, selected && s.selectionBadgeActive]}
+          hitSlop={10}
+        >
+          <Ionicons
+            name={selected ? "checkmark-circle" : "ellipse-outline"}
+            size={18}
+            color={selected ? "#fff" : "rgba(255,255,255,0.78)"}
+          />
+        </Pressable>
+      ) : null}
+
+      <Pressable
+        onPress={() => onRemove(item)}
+        style={s.removeBadge}
+        hitSlop={10}
+      >
+        <Ionicons name="close-outline" size={15} color="#fff" />
+      </Pressable>
+    </View>
+  );
+}
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function LibraryScreen() {
   const tracker = useTracker();
   const [activeTab, setActiveTab] = useState<LibraryTab>("Status");
-  const [selectedStatus, setSelectedStatus] = useState<TrackerStatus>("Watching");
+  const [selectedStatus, setSelectedStatus] =
+    useState<TrackerStatus>("Watching");
+  const [multiSelectMode, setMultiSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
   const [toastMsg, setToastMsg] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearSelection = () => {
+    setSelectedIds([]);
+    setMultiSelectMode(false);
+  };
+
+  const toggleSelected = (id: string) => {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((entryId) => entryId !== id)
+        : [...current, id],
+    );
+  };
+
+  const handleRemoveEntry = (
+    item: ReturnType<typeof useTracker>["entries"][number],
+  ) => {
+    Alert.alert(
+      "Remove title?",
+      `Remove \"${item.title}\" from your library?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            await tracker.removeEntry(item.id);
+            showToast(`\"${item.title}\" removed`);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleBulkRemove = () => {
+    if (selectedIds.length === 0) return;
+    const count = selectedIds.length;
+    Alert.alert(
+      "Remove selected titles?",
+      `Remove ${count} item${count === 1 ? "" : "s"} from your library?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            await tracker.removeEntries(selectedIds);
+            showToast(`${count} item${count === 1 ? "" : "s"} removed`);
+            clearSelection();
+          },
+        },
+      ],
+    );
+  };
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -314,17 +457,30 @@ export default function LibraryScreen() {
     activeTab === "Wishlist"
       ? tracker.wishlistEntries
       : activeTab === "All"
-      ? tracker.entries
-      : activeTab === "Status"
-      ? tracker.entries.filter((e) => e.status === selectedStatus)
-      : tracker.entries.filter((e) => e.status !== "None");
+        ? tracker.entries
+        : activeTab === "Status"
+          ? tracker.entries.filter((e) => e.status === selectedStatus)
+          : tracker.entries.filter((e) => e.status !== "None");
+
+  const renderTrackedItem = (
+    item: ReturnType<typeof useTracker>["entries"][number],
+  ) => (
+    <TrackedEntryCard
+      key={`${item.type}-${item.id}`}
+      item={item}
+      selectionMode={multiSelectMode}
+      selected={selectedIds.includes(item.id)}
+      onToggleSelect={toggleSelected}
+      onRemove={handleRemoveEntry}
+    />
+  );
 
   return (
     <SafeAreaView style={s.safe} edges={["top"]}>
       <StatusBar barStyle="light-content" />
 
       {/* Ambient glow orbs */}
-      <View style={s.orbTopLeft}  pointerEvents="none" />
+      <View style={s.orbTopLeft} pointerEvents="none" />
       <View style={s.orbMidRight} pointerEvents="none" />
 
       {/* Overlays */}
@@ -364,6 +520,7 @@ export default function LibraryScreen() {
                   key={tab}
                   onPress={() => {
                     setActiveTab(tab);
+                    clearSelection();
                     if (tab === "Status") setSelectedStatus("Watching");
                   }}
                   style={({ pressed }) => [
@@ -372,7 +529,9 @@ export default function LibraryScreen() {
                     pressed && { opacity: 0.72 },
                   ]}
                 >
-                  <Text style={[s.tabText, active && s.tabTextActive]}>{tab}</Text>
+                  <Text style={[s.tabText, active && s.tabTextActive]}>
+                    {tab}
+                  </Text>
                 </Pressable>
               );
             })}
@@ -380,10 +539,82 @@ export default function LibraryScreen() {
 
           {/* Summary tiles */}
           <View style={s.summaryRow}>
-            <SummaryTile label="Tracked"     value={String(tracker.totalTracked)}           accent={ACCENT}    />
-            <SummaryTile label="Wishlisted"  value={String(tracker.wishlistEntries.length)} accent="#F472B6"   />
-            <SummaryTile label="Collections" value={String(tracker.collections.length)}     accent="#06B6D4"   />
+            <SummaryTile
+              label="Tracked"
+              value={String(tracker.totalTracked)}
+              accent={ACCENT}
+            />
+            <SummaryTile
+              label="Wishlisted"
+              value={String(tracker.wishlistEntries.length)}
+              accent="#F472B6"
+            />
+            <SummaryTile
+              label="Collections"
+              value={String(tracker.collections.length)}
+              accent="#06B6D4"
+            />
           </View>
+
+          {activeTab !== "Collections" && visibleEntries.length > 0 ? (
+            <View style={s.selectionBar}>
+              <Pressable
+                onPress={() => setMultiSelectMode((v) => !v)}
+                style={({ pressed }) => [
+                  s.selectionBtn,
+                  multiSelectMode && s.selectionBtnActive,
+                  pressed && { opacity: 0.78 },
+                ]}
+              >
+                <Ionicons
+                  name={
+                    multiSelectMode
+                      ? "close-circle-outline"
+                      : "checkbox-outline"
+                  }
+                  size={15}
+                  color={multiSelectMode ? "#fff" : ACCENT}
+                />
+                <Text
+                  style={[
+                    s.selectionBtnText,
+                    multiSelectMode && { color: "#fff" },
+                  ]}
+                >
+                  {multiSelectMode
+                    ? `Selected ${selectedIds.length}`
+                    : "Select"}
+                </Text>
+              </Pressable>
+
+              {multiSelectMode ? (
+                <View style={s.selectionActions}>
+                  <Pressable
+                    onPress={clearSelection}
+                    style={({ pressed }) => [
+                      s.selectionActionGhost,
+                      pressed && { opacity: 0.75 },
+                    ]}
+                  >
+                    <Text style={s.selectionActionGhostText}>Done</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={handleBulkRemove}
+                    disabled={selectedIds.length === 0}
+                    style={({ pressed }) => [
+                      s.selectionActionDanger,
+                      selectedIds.length === 0 && { opacity: 0.35 },
+                      pressed && selectedIds.length > 0 && { opacity: 0.78 },
+                    ]}
+                  >
+                    <Text style={s.selectionActionDangerText}>
+                      Remove selected
+                    </Text>
+                  </Pressable>
+                </View>
+              ) : null}
+            </View>
+          ) : null}
 
           {/* Status grid — only on Status tab */}
           {activeTab === "Status" && (
@@ -406,14 +637,15 @@ export default function LibraryScreen() {
           />
         ) : activeTab === "Wishlist" ? (
           <>
-            <SectionHeader title="Wishlist" subtitle="Titles you want to get back to" />
+            <SectionHeader
+              title="Wishlist"
+              subtitle="Titles you want to get back to"
+            />
             {tracker.wishlistEntries.length > 0 ? (
               <FlatList
                 data={tracker.wishlistEntries.slice(0, 8)}
                 keyExtractor={(item) => `${item.type}-${item.id}`}
-                renderItem={({ item }) => (
-                  <MediaCard item={item} variant="landscape" style={s.mediaRow} />
-                )}
+                renderItem={({ item }) => renderTrackedItem(item)}
                 scrollEnabled={false}
               />
             ) : (
@@ -426,14 +658,15 @@ export default function LibraryScreen() {
           </>
         ) : activeTab === "Status" ? (
           <>
-            <SectionHeader title="Library" subtitle="Your tracked titles by status" />
+            <SectionHeader
+              title="Library"
+              subtitle="Your tracked titles by status"
+            />
             {visibleEntries.length > 0 ? (
               <FlatList
                 data={visibleEntries.slice(0, 8)}
                 keyExtractor={(item) => `${item.type}-${item.id}`}
-                renderItem={({ item }) => (
-                  <MediaCard item={item} variant="landscape" style={s.mediaRow} />
-                )}
+                renderItem={({ item }) => renderTrackedItem(item)}
                 scrollEnabled={false}
               />
             ) : (
@@ -446,18 +679,12 @@ export default function LibraryScreen() {
           </>
         ) : (
           <>
-            <SectionHeader title="Recent activity" subtitle="Latest updated entries" />
+            <SectionHeader
+              title="Recent activity"
+              subtitle="Latest updated entries"
+            />
             {tracker.entries.length > 0 ? (
-              tracker.entries
-                .slice(0, 5)
-                .map((item) => (
-                  <MediaCard
-                    key={`${item.type}-${item.id}`}
-                    item={item}
-                    variant="landscape"
-                    style={s.mediaRow}
-                  />
-                ))
+              tracker.entries.slice(0, 5).map((item) => renderTrackedItem(item))
             ) : (
               <EmptyCard
                 icon="star-outline"
@@ -476,12 +703,12 @@ export default function LibraryScreen() {
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-const BG      = "#0A0A14";
+const BG = "#0A0A14";
 const SURFACE = "#111120";
-const BORDER  = "rgba(255,255,255,0.07)";
+const BORDER = "rgba(255,255,255,0.07)";
 
 const s = StyleSheet.create({
-  safe:   { flex: 1, backgroundColor: BG },
+  safe: { flex: 1, backgroundColor: BG },
   scroll: { paddingBottom: 24 },
 
   // Ambient orbs
@@ -510,7 +737,7 @@ const s = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 70,
     paddingBottom: 14,
   },
   eyebrow: {
@@ -560,7 +787,7 @@ const s = StyleSheet.create({
     borderColor: BORDER,
     backgroundColor: "rgba(255,255,255,0.04)",
   },
-  tabText:       { color: "rgba(255,255,255,0.42)", fontSize: 12, fontWeight: "500" },
+  tabText: { color: "rgba(255,255,255,0.42)", fontSize: 12, fontWeight: "500" },
   tabTextActive: { color: "#fff", fontWeight: "600" },
 
   // Summary tiles
@@ -595,7 +822,12 @@ const s = StyleSheet.create({
     paddingHorizontal: 10,
   },
   statusCount: { fontSize: 20, fontWeight: "700", lineHeight: 22 },
-  statusLabel: { fontSize: 10.5, fontWeight: "600", marginTop: 2, lineHeight: 14 },
+  statusLabel: {
+    fontSize: 10.5,
+    fontWeight: "600",
+    marginTop: 2,
+    lineHeight: 14,
+  },
 
   // Divider
   divider: {
@@ -606,12 +838,109 @@ const s = StyleSheet.create({
   },
 
   // Section header
-  sectionHdr:   { paddingHorizontal: 20, marginBottom: 10 },
-  sectionTitle: { color: "#fff", fontSize: 16, fontWeight: "700", marginBottom: 3 },
-  sectionSub:   { color: "rgba(255,255,255,0.32)", fontSize: 12 },
+  sectionHdr: { paddingHorizontal: 20, marginBottom: 10 },
+  sectionTitle: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "700",
+    marginBottom: 3,
+  },
+  sectionSub: { color: "rgba(255,255,255,0.32)", fontSize: 12 },
 
   // Media rows
   mediaRow: { marginHorizontal: 16, marginBottom: 10 },
+  entryWrap: { marginHorizontal: 16, marginBottom: 10, position: "relative" },
+  entryCard: { marginHorizontal: 0, marginBottom: 0 },
+  removeBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(239,68,68,0.9)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    zIndex: 5,
+  },
+  selectionBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,15,30,0.85)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.2)",
+    zIndex: 6,
+  },
+  selectionBadgeActive: {
+    backgroundColor: ACCENT,
+    borderColor: "rgba(255,255,255,0.45)",
+  },
+
+  // Library actions
+  selectionBar: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: SURFACE,
+    borderWidth: 1,
+    borderColor: BORDER,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  selectionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(108,78,246,0.12)",
+    borderWidth: 1,
+    borderColor: "rgba(108,78,246,0.25)",
+  },
+  selectionBtnActive: {
+    backgroundColor: ACCENT,
+    borderColor: ACCENT,
+  },
+  selectionBtnText: { color: ACCENT, fontSize: 12.5, fontWeight: "700" },
+  selectionActions: { flexDirection: "row", alignItems: "center", gap: 8 },
+  selectionActionGhost: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderWidth: 1,
+    borderColor: BORDER,
+  },
+  selectionActionGhostText: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  selectionActionDanger: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+    backgroundColor: "rgba(239,68,68,0.16)",
+    borderWidth: 1,
+    borderColor: "rgba(239,68,68,0.25)",
+  },
+  selectionActionDangerText: {
+    color: "#FCA5A5",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
 
   // Empty card
   emptyCard: {
@@ -632,7 +961,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-  emptyTitle: { color: "#fff", fontSize: 15, fontWeight: "700", marginBottom: 6 },
+  emptyTitle: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+    marginBottom: 6,
+  },
   emptySub: {
     color: "rgba(255,255,255,0.32)",
     fontSize: 12.5,
@@ -677,7 +1011,12 @@ const s = StyleSheet.create({
     borderColor: BORDER,
     gap: 8,
   },
-  collTop: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8 },
+  collTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
   collName: { color: "#fff", fontSize: 14.5, fontWeight: "600", flex: 1 },
   collBadge: {
     backgroundColor: "rgba(6,182,212,0.14)",
@@ -686,8 +1025,12 @@ const s = StyleSheet.create({
     paddingVertical: 3,
   },
   collBadgeText: { color: "#06B6D4", fontSize: 11.5, fontWeight: "700" },
-  collHint:  { color: "rgba(255,255,255,0.32)", fontSize: 12, lineHeight: 17 },
-  collEmpty: { color: "rgba(255,255,255,0.18)", fontSize: 12, fontStyle: "italic" },
+  collHint: { color: "rgba(255,255,255,0.32)", fontSize: 12, lineHeight: 17 },
+  collEmpty: {
+    color: "rgba(255,255,255,0.18)",
+    fontSize: 12,
+    fontStyle: "italic",
+  },
   collFooter: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -708,7 +1051,10 @@ const s = StyleSheet.create({
   // Delete modal
   modalOverlay: {
     position: "absolute",
-    top: 0, left: 0, right: 0, bottom: 0,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "rgba(0,0,0,0.7)",
     alignItems: "center",
     justifyContent: "center",
@@ -732,7 +1078,12 @@ const s = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-  modalTitle: { color: "#fff", fontSize: 17, fontWeight: "700", marginBottom: 8 },
+  modalTitle: {
+    color: "#fff",
+    fontSize: 17,
+    fontWeight: "700",
+    marginBottom: 8,
+  },
   modalBody: {
     color: "rgba(255,255,255,0.5)",
     fontSize: 13,
@@ -741,14 +1092,23 @@ const s = StyleSheet.create({
     marginBottom: 20,
   },
   modalActions: { flexDirection: "row", gap: 10, width: "100%" },
-  modalBtn: { flex: 1, paddingVertical: 13, borderRadius: 12, alignItems: "center" },
+  modalBtn: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    alignItems: "center",
+  },
   modalCancel: {
     backgroundColor: "rgba(255,255,255,0.06)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.09)",
   },
-  modalCancelText: { color: "rgba(255,255,255,0.65)", fontSize: 14, fontWeight: "600" },
-  modalDelete:     { backgroundColor: "#EF4444" },
+  modalCancelText: {
+    color: "rgba(255,255,255,0.65)",
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  modalDelete: { backgroundColor: "#EF4444" },
   modalDeleteText: { color: "#fff", fontSize: 14, fontWeight: "600" },
 
   // Toast

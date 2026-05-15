@@ -1,10 +1,9 @@
 import MediaCard, { MediaItem } from "@/components/MediaCard";
-import { getTrending } from "@/services/anilist";
+import { getTrending, AnimeFilter } from "@/services/anilist";
 import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import React, { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Dimensions,
   FlatList,
@@ -35,14 +34,13 @@ const COLORS = {
   borderStrong: "rgba(108,78,246,0.4)",
 };
 
-const FILTERS = ["Trending", "Popular", "Top Rated", "Airing"] as const;
-type Filter = (typeof FILTERS)[number];
+const FILTERS: AnimeFilter[] = ["Trending", "Popular", "Top Rated", "Airing"];
 
-const FILTER_META: Record<Filter, { icon: string; sort: string }> = {
-  Trending:    { icon: "flame-outline",            sort: "TRENDING_DESC"   },
-  Popular:     { icon: "heart-outline",             sort: "POPULARITY_DESC" },
-  "Top Rated": { icon: "star-outline",              sort: "SCORE_DESC"      },
-  Airing:      { icon: "radio-button-on-outline",  sort: "TRENDING_DESC"   },
+const FILTER_META: Record<AnimeFilter, { icon: string; description: string }> = {
+  Trending:    { icon: "flame-outline",           description: "What everyone's watching right now" },
+  Popular:     { icon: "heart-outline",            description: "All-time fan favourites"            },
+  "Top Rated": { icon: "star-outline",             description: "Highest scored titles (70+ score)"  },
+  Airing:      { icon: "radio-button-on-outline",  description: "Currently airing this season"       },
 };
 
 function normalise(item: any): MediaItem {
@@ -54,6 +52,7 @@ function normalise(item: any): MediaItem {
     score:      item.averageScore,
     episodes:   item.episodes,
     genres:     item.genres ?? [],
+    rankings:   item.rankings ?? [],
     raw:        item,
   };
 }
@@ -104,7 +103,15 @@ const sk = StyleSheet.create({
 });
 
 // ─── Filter Pill ──────────────────────────────────────────────────────────────
-function FilterPill({ label, active, onPress }: { label: Filter; active: boolean; onPress: () => void }) {
+function FilterPill({
+  label,
+  active,
+  onPress,
+}: {
+  label: AnimeFilter;
+  active: boolean;
+  onPress: () => void;
+}) {
   const scale = useRef(new Animated.Value(1)).current;
   const meta  = FILTER_META[label];
 
@@ -116,6 +123,8 @@ function FilterPill({ label, active, onPress }: { label: Filter; active: boolean
     onPress();
   };
 
+  
+
   return (
     <Pressable onPress={handlePress}>
       <Animated.View style={[pill.wrap, active && pill.wrapActive, { transform: [{ scale }] }]}>
@@ -126,7 +135,12 @@ function FilterPill({ label, active, onPress }: { label: Filter; active: boolean
             style={StyleSheet.absoluteFill}
           />
         )}
-        <Ionicons name={meta.icon as any} size={13} color={active ? "#fff" : COLORS.textMuted} style={{ marginRight: 5 }} />
+        <Ionicons
+          name={meta.icon as any}
+          size={13}
+          color={active ? "#fff" : COLORS.textMuted}
+          style={{ marginRight: 5 }}
+        />
         <Text style={[pill.text, active && pill.activeText]}>{label}</Text>
       </Animated.View>
     </Pressable>
@@ -142,16 +156,34 @@ const pill = StyleSheet.create({
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
 export default function AnimeScreen() {
-  const [filter,   setFilter]   = useState<Filter>("Trending");
+  const [filter,   setFilter]   = useState<AnimeFilter>("Trending");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
+  function sortItems(items: MediaItem[], filter: string): MediaItem[] {
+  const sorted = [...items];
+  switch (filter) {
+    case "Top Rated":
+      return sorted.sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
+    case "Popular":
+      return sorted.sort((a, b) =>
+        ((b.raw as any)?.popularity ?? 0) - ((a.raw as any)?.popularity ?? 0)
+      );
+    case "Airing":
+      return sorted.sort((a, b) =>
+        ((b.raw as any)?.popularity ?? 0) - ((a.raw as any)?.popularity ?? 0)
+      );
+    default:
+      return sorted;
+  }
+}
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ["anime", filter],
-    queryFn:  () => getTrending("ANIME", FILTER_META[filter].sort),
+    queryFn:  () => getTrending("ANIME", filter),
   });
 
-  const items: MediaItem[] = (data ?? []).map(normalise);
+  const items: MediaItem[] = sortItems((data ?? []).map(normalise), filter);
 
   useEffect(() => {
     if (!isLoading) {
@@ -160,17 +192,20 @@ export default function AnimeScreen() {
     }
   }, [isLoading, filter]);
 
-  const numColumns    = viewMode === "grid" ? 2 : 1;
+  const numColumns     = viewMode === "grid" ? 2 : 1;
   const SKELETON_COUNT = viewMode === "grid" ? 6 : 5;
-  const skeletonData  = Array.from({ length: SKELETON_COUNT }, (_, i) => i);
+  const skeletonData   = Array.from({ length: SKELETON_COUNT }, (_, i) => i);
+
+  const filterMeta = FILTER_META[filter];
 
   const ListHeader = (
     <>
       {/* Header */}
       <View style={s.header}>
-        <View>
+        <View style={{ flex: 1, marginRight: 12 }}>
           <Text style={s.eyebrow}>DISCOVER</Text>
           <Text style={s.title}>Anime</Text>
+          <Text style={s.subtitle}>{filterMeta.description}</Text>
         </View>
         <View style={s.actions}>
           {!isLoading && !isError && (
@@ -184,21 +219,21 @@ export default function AnimeScreen() {
         </View>
       </View>
 
-      {/* Pills — ScrollView instead of FlatList */}
+      {/* Pills */}
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={s.pillsContainer}
         style={s.pillsRow}
       >
-        {(FILTERS as unknown as Filter[]).map(f => (
+        {FILTERS.map(f => (
           <FilterPill key={f} label={f} active={filter === f} onPress={() => setFilter(f)} />
         ))}
       </ScrollView>
 
       <View style={s.divider} />
 
-      {/* Loading skeleton inline in header */}
+      {/* Skeleton */}
       {isLoading && (
         <FlatList
           key={`skeleton-${viewMode}`}
@@ -253,6 +288,7 @@ export default function AnimeScreen() {
               item={item as MediaItem}
               variant={viewMode === "grid" ? "portrait" : "landscape"}
               style={viewMode === "grid" ? s.gridCard : s.listCard}
+              activeFilter={filter}
             />
           )}
           ListEmptyComponent={
@@ -272,10 +308,11 @@ const s = StyleSheet.create({
   root:          { flex: 1, backgroundColor: COLORS.bg },
   safe:          { flex: 1 },
   glowCircle:    { position: "absolute", top: -80, left: SCREEN_W / 2 - 160, width: 320, height: 320, borderRadius: 160, backgroundColor: COLORS.accentGlow, opacity: 0.55 },
-  header:        { flexDirection: "row", alignItems: "flex-end", justifyContent: "space-between", paddingHorizontal: 22, paddingTop: 70, paddingBottom: 16 },
+  header:        { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", paddingHorizontal: 22, paddingTop: 70, paddingBottom: 16 },
   eyebrow:       { color: COLORS.accent, fontSize: 10, fontWeight: "800", letterSpacing: 2.5, marginBottom: 2 },
   title:         { color: COLORS.text, fontSize: 32, fontWeight: "800", letterSpacing: -0.8, lineHeight: 40 },
-  actions:       { flexDirection: "row", alignItems: "center", gap: 8, paddingBottom: 4 },
+  subtitle:      { color: COLORS.textMuted, fontSize: 12, marginTop: 3, lineHeight: 16 },
+  actions:       { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 48 },
   badge:         { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20, backgroundColor: COLORS.accentGlow, borderWidth: 1, borderColor: COLORS.borderStrong },
   badgeText:     { color: COLORS.accentLight, fontSize: 12, fontWeight: "700", letterSpacing: 0.3 },
   iconBtn:       { width: 38, height: 38, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.05)", borderWidth: 1, borderColor: COLORS.border, alignItems: "center", justifyContent: "center" },

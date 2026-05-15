@@ -41,6 +41,21 @@ interface MediaCardProps {
   variant?: "portrait" | "landscape";
   style?: ViewStyle;
   onPress?: (item: MediaItem) => void;
+  activeFilter?: string;
+}
+
+function getBestRank(
+  rankings: MediaItem["rankings"],
+  filter?: string,
+): NonNullable<MediaItem["rankings"]>[number] | null {
+  if (!rankings?.length) return null;
+
+  // Only show medal badge on Top Rated tab, and only for allTime RATED rank ≤ 10
+  if (filter !== "Top Rated") return null;
+
+  const rated = rankings.find(r => r.allTime && r.type === "RATED");
+  if (!rated || rated.rank > 10) return null;
+  return rated;
 }
 
 // ─── Design Tokens ──────────────────────────────────────────────────────────────
@@ -77,20 +92,31 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const RELEASE_COLOR: Record<string, string> = {
-  RELEASING:       "#38BDF8",
-  FINISHED:        "#22C55E",
-  NOT_YET_RELEASED:"#F59E0B",
-  HIATUS:          "#F97316",
-  CANCELLED:       "#EF4444",
+  RELEASING:        "#38BDF8",
+  FINISHED:         "#22C55E",
+  NOT_YET_RELEASED: "#F59E0B",
+  HIATUS:           "#F97316",
+  CANCELLED:        "#EF4444",
 };
 
 const RELEASE_LABEL: Record<string, string> = {
-  RELEASING:       "Airing",
-  FINISHED:        "Finished",
-  NOT_YET_RELEASED:"Upcoming",
-  HIATUS:          "Hiatus",
-  CANCELLED:       "Cancelled",
+  RELEASING:        "Airing",
+  FINISHED:         "Finished",
+  NOT_YET_RELEASED: "Upcoming",
+  HIATUS:           "Hiatus",
+  CANCELLED:        "Cancelled",
 };
+
+// ─── Rank config ────────────────────────────────────────────────────────────────
+/** Visual config for each tier bracket */
+type RankTier = {
+  emoji:  string;
+  bg:     string;
+  border: string;
+  glow:   string;
+};
+
+
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
 function formatCountdown(seconds?: number | null) {
@@ -133,16 +159,24 @@ function getAnimeCountdown(item: MediaItem) {
   const releaseLabel  = releaseStatus ? (RELEASE_LABEL[releaseStatus] ?? releaseStatus) : null;
   const releaseColor  = releaseStatus ? (RELEASE_COLOR[releaseStatus] ?? "rgba(255,255,255,0.65)") : null;
 
-  if (item.type !== "anime" || raw?.status !== "RELEASING" || !raw?.nextAiringEpisode?.episode) {
+  if (
+    item.type !== "anime" ||
+    raw?.status !== "RELEASING" ||
+    !raw?.nextAiringEpisode?.episode
+  ) {
     return { releaseLabel, releaseColor, countdown: null, releasedEpisode: null as number | null, remaining: null as number | null };
   }
 
-  const nextEpisode     = raw.nextAiringEpisode.episode;
+  const nextEpisode    = raw.nextAiringEpisode.episode;
   const releasedEpisode = Math.max(0, nextEpisode - 1);
-  const remaining       = Math.max(0, (item.episodes ?? nextEpisode) - releasedEpisode);
+  const remaining      = Math.max(0, (item.episodes ?? nextEpisode) - releasedEpisode);
 
   return {
-    releaseLabel, releaseColor, releasedEpisode, nextEpisode, remaining,
+    releaseLabel,
+    releaseColor,
+    releasedEpisode,
+    nextEpisode,
+    remaining,
     countdown: raw.nextAiringEpisode.airingAt
       ? formatCountdown(Math.ceil((raw.nextAiringEpisode.airingAt * 1000 - Date.now()) / 1000))
       : formatCountdown(raw.nextAiringEpisode.timeUntilAiring),
@@ -150,8 +184,16 @@ function getAnimeCountdown(item: MediaItem) {
 }
 
 // ─── Marquee ────────────────────────────────────────────────────────────────────
-function Marquee({ children, style, textStyle, speed = 38 }: {
-  children: string; style?: any; textStyle?: any; speed?: number;
+function Marquee({
+  children,
+  style,
+  textStyle,
+  speed = 38,
+}: {
+  children: string;
+  style?: any;
+  textStyle?: any;
+  speed?: number;
 }) {
   const [containerW, setContainerW] = useState(0);
   const [textW,      setTextW]      = useState(0);
@@ -176,16 +218,16 @@ function Marquee({ children, style, textStyle, speed = 38 }: {
 
   if (containerW > 0 && textW > 0 && textW <= containerW) {
     return (
-      <View style={style} onLayout={e => setContainerW(e.nativeEvent.layout.width)}>
+      <View style={style} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
         <Text style={textStyle}>{children}</Text>
       </View>
     );
   }
 
   return (
-    <View style={[{ overflow: "hidden" }, style]} onLayout={e => setContainerW(e.nativeEvent.layout.width)}>
+    <View style={[{ overflow: "hidden" }, style]} onLayout={(e) => setContainerW(e.nativeEvent.layout.width)}>
       <Animated.Text
-        onLayout={e => setTextW(e.nativeEvent.layout.width)}
+        onLayout={(e) => setTextW(e.nativeEvent.layout.width)}
         style={[textStyle, { transform: [{ translateX: animatedX }] }]}
         numberOfLines={1}
       >
@@ -195,56 +237,81 @@ function Marquee({ children, style, textStyle, speed = 38 }: {
   );
 }
 
-// ─── Small Badges ───────────────────────────────────────────────────────────────
-function RankBadge({ rank }: { rank: number }) {
-  const isTop3  = rank <= 3;
-  const MEDAL: Record<number, string> = { 1: "🥇", 2: "🥈", 3: "🥉" };
-  return (
-    <View style={[badge.rank, isTop3 && badge.rankTop]}>
-      <Text style={[badge.rankText, isTop3 && badge.rankTextTop]}>
-        {isTop3 ? MEDAL[rank] : `#${rank}`}
-      </Text>
-    </View>
-  );
-}
+// ─── Rank Badge ─────────────────────────────────────────────────────────────────
+/**
+ * Improved rank badge:
+ *  • Gold/silver/bronze glow rings for top-3
+ *  • Medal emoji for top-10 with rank number
+ *  • Subdued pill for 11–50
+ *  • Ghost pill for 51+
+ */
+// ─── Rank Badge ─────────────────────────────────────────────────────────────────
 
+
+
+// const rb = StyleSheet.create({
+//   wrap: {
+//     paddingHorizontal: 8,
+//     paddingVertical: 5,
+//     borderRadius: 8,
+//     borderWidth: 1,
+//     alignItems: "center",
+//     justifyContent: "center",
+//     overflow: "hidden",   // ← needed so absoluteFillObject clips to border radius
+//   },
+//   inner: { flexDirection: "row", alignItems: "center", gap: 3 },
+//   emoji: { fontSize: 12 },
+//   num:   { fontSize: 10, fontWeight: "800", letterSpacing: 0.2 },
+// });
+
+// ─── Score Badge ────────────────────────────────────────────────────────────────
 function ScoreBadge({ score, accent }: { score: number; accent: string }) {
   return (
-    <View style={[badge.score, { backgroundColor: "rgba(0,0,0,0.55)", borderColor: "rgba(255,255,255,0.12)" }]}>
-      <Text style={badge.scoreStar}>★</Text>
-      <Text style={[badge.scoreVal, { color: accent }]}>{formatRating(score)}</Text>
+    <View style={[sb.wrap, { borderColor: "rgba(255,255,255,0.12)" }]}>
+      <Text style={sb.star}>★</Text>
+      <Text style={[sb.val, { color: accent }]}>{formatRating(score)}</Text>
     </View>
   );
 }
 
-const badge = StyleSheet.create({
-  rank:        { paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, backgroundColor: "rgba(0,0,0,0.6)", borderWidth: 1, borderColor: "rgba(255,255,255,0.12)" },
-  rankTop:     { backgroundColor: "rgba(234,179,8,0.18)", borderColor: "rgba(234,179,8,0.5)" },
-  rankText:    { color: "rgba(255,255,255,0.75)", fontSize: 10, fontWeight: "700" },
-  rankTextTop: { color: "#EAB308" },
-  score:       { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, borderWidth: 1 },
-  scoreStar:   { color: "#FBBF24", fontSize: 9 },
-  scoreVal:    { fontSize: 11, fontWeight: "800" },
+const sb = StyleSheet.create({
+  wrap: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, borderWidth: 1, backgroundColor: "rgba(0,0,0,0.55)" },
+  star: { color: "#FBBF24", fontSize: 9 },
+  val:  { fontSize: 11, fontWeight: "800" },
 });
 
-// ─── Portrait Card ───────────────────────────────────────────────────────────────
-function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void }) {
-  const accent     = TYPE_COLOR[item.type];
-  const gradPair   = TYPE_GRADIENT[item.type];
-  const tracker    = useTracker();
-  const entry      = tracker.getEntry(String(item.id), item.type);
-  const raw        = item.raw as RawItem;
-  const isAiring   = item.type === "anime" && raw?.status === "RELEASING" && Boolean(raw?.nextAiringEpisode?.episode);
-  const now        = useNow(isAiring);
-  const countdown  = getAnimeCountdown(item);
+// ─── Type Pill ──────────────────────────────────────────────────────────────────
+function TypePill({ type }: { type: MediaType }) {
+  return (
+    <LinearGradient
+      colors={TYPE_GRADIENT[type]}
+      start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+      style={s.typePill}
+    >
+      <Text style={s.typePillText}>{TYPE_LABEL[type]}</Text>
+    </LinearGradient>
+  );
+}
 
-  const liveCountdown = isAiring && raw?.nextAiringEpisode
-    ? formatCountdown(
-        raw.nextAiringEpisode.airingAt
-          ? Math.ceil(raw.nextAiringEpisode.airingAt - now / 1000)
-          : raw.nextAiringEpisode.timeUntilAiring,
-      )
-    : null;
+// ─── Portrait Card ───────────────────────────────────────────────────────────────
+function PortraitCard({ item, onPress, activeFilter }: { item: MediaItem; onPress: () => void; activeFilter?: string; }) {
+  const mediaId = String((item as any).mediaId ?? item.id);
+  const accent  = TYPE_COLOR[item.type];
+  const tracker = useTracker();
+  const entry   = tracker.getEntry(mediaId, item.type);
+  const raw     = item.raw as RawItem;
+  const isAiring = item.type === "anime" && raw?.status === "RELEASING" && Boolean(raw?.nextAiringEpisode?.episode);
+  const now      = useNow(isAiring);
+  const countdown = getAnimeCountdown(item);
+
+  const liveCountdown =
+    isAiring && raw?.nextAiringEpisode
+      ? formatCountdown(
+          raw.nextAiringEpisode.airingAt
+            ? Math.ceil(raw.nextAiringEpisode.airingAt - now / 1000)
+            : raw.nextAiringEpisode.timeUntilAiring,
+        )
+      : null;
 
   const meta = item.episodes
     ? `${item.episodes} eps`
@@ -252,18 +319,27 @@ function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void 
       ? `${item.chapters} ch`
       : null;
 
+  // Pick the best ranking to show: prefer allTime RATED
+const topRank = getBestRank(item.rankings, activeFilter);
+
   const scaleAnim = useRef(new Animated.Value(1)).current;
   const handlePressIn  = () => Animated.spring(scaleAnim, { toValue: 0.955, useNativeDriver: true, speed: 30 }).start();
   const handlePressOut = () => Animated.spring(scaleAnim, { toValue: 1,     useNativeDriver: true, speed: 24 }).start();
 
   return (
-    <Pressable
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-    >
-      <Animated.View style={[s.portraitCard, { width: CARD_W, height: CARD_H, transform: [{ scale: scaleAnim }] }]}>
-        <Image source={{ uri: item.coverImage }} style={StyleSheet.absoluteFillObject} contentFit="cover" transition={250} />
+    <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
+      <Animated.View
+        style={[
+          s.portraitCard,
+          { width: CARD_W, height: CARD_H, transform: [{ scale: scaleAnim }] },
+        ]}
+      >
+        <Image
+          source={{ uri: item.coverImage }}
+          style={StyleSheet.absoluteFillObject}
+          contentFit="cover"
+          transition={250}
+        />
 
         {/* Deep bottom gradient */}
         <LinearGradient
@@ -280,23 +356,55 @@ function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void 
         />
 
         {/* Top-left: type pill */}
-        <View style={[s.typePill, { backgroundColor: accent + "28", borderColor: accent + "70" }]}>
-          <Text style={[s.typePillText, { color: accent }]}>{TYPE_LABEL[item.type]}</Text>
+        <View style={s.typePillWrap}>
+          <TypePill type={item.type} />
         </View>
 
         {/* Top-right: rank + status */}
         <View style={s.topRight}>
-          {item.rankings?.[0] && <RankBadge rank={item.rankings[0].rank} />}
           {entry && (
-            <View style={[s.statusPill, { borderColor: STATUS_COLOR[entry.status] + "80", backgroundColor: STATUS_COLOR[entry.status] + "22" }]}>
-              <View style={[s.statusDot, { backgroundColor: STATUS_COLOR[entry.status] }]} />
-              <Text style={[s.statusText, { color: STATUS_COLOR[entry.status] }]}>{entry.status}</Text>
-            </View>
+            <View
+  style={[
+    s.statusPill,
+    {
+      borderColor:     STATUS_COLOR[entry.status] + "99",  // more opaque border
+      backgroundColor: "rgba(0,0,0,0.68)",                 // solid dark base
+    },
+  ]}
+>
+  {/* Colored tint overlay */}
+  <View
+    pointerEvents="none"
+    style={[
+      StyleSheet.absoluteFillObject,
+      {
+        backgroundColor: STATUS_COLOR[entry.status] + "2E",
+        borderRadius: 8,
+      },
+    ]}
+  />
+  <View style={[s.statusDot, { backgroundColor: STATUS_COLOR[entry.status] }]} />
+  <Text style={[s.statusText, { color: STATUS_COLOR[entry.status] }]}>
+    {entry.status}
+  </Text>
+</View>
           )}
         </View>
 
         {/* Bottom info */}
         <View style={s.portraitBottom}>
+           <View
+    style={[
+      StyleSheet.absoluteFillObject,
+      {
+        backgroundColor: "#12122A",
+        opacity: 0.22,
+        borderBottomLeftRadius: 16,
+        borderBottomRightRadius: 16,
+      },
+    ]}
+  />
+
           {item.score != null && <ScoreBadge score={item.score} accent={accent} />}
 
           <Marquee textStyle={s.portraitTitle}>{item.title}</Marquee>
@@ -306,7 +414,10 @@ function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void 
           {countdown?.releaseLabel && (
             <View style={s.releaseRow}>
               <View style={[s.releaseDot, { backgroundColor: countdown.releaseColor ?? "#fff" }]} />
-              <Text style={[s.releaseText, { color: countdown.releaseColor ?? "rgba(255,255,255,0.65)" }]} numberOfLines={1}>
+              <Text
+                style={[s.releaseText, { color: countdown.releaseColor ?? "rgba(255,255,255,0.65)" }]}
+                numberOfLines={1}
+              >
                 {countdown.releaseLabel}
                 {liveCountdown ? ` · ${liveCountdown}` : ""}
               </Text>
@@ -316,17 +427,15 @@ function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void 
           {entry && (
             <Text style={s.progressText} numberOfLines={1}>
               {entry.totalProgress
-                ? `${entry.progress} / ${entry.totalProgress}`
-                : `Ep ${entry.progress}`}
-              {entry.rewatches > 0 ? ` · ×${entry.rewatches}` : ""}
+                ? `${entry.progress ?? 0} / ${entry.totalProgress}`
+                : `Ep ${entry.progress ?? 0}`}
+              {(entry.rewatches ?? 0) > 0 ? ` · ×${entry.rewatches}` : ""}
             </Text>
           )}
 
           {item.genres && item.genres.length > 0 && (
-  <Marquee textStyle={s.genreText}>
-    {item.genres.slice(0, 2).join(" · ")}
-  </Marquee>
-)}
+            <Marquee textStyle={s.genreText}>{item.genres.slice(0, 2).join(" · ")}</Marquee>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -334,27 +443,35 @@ function PortraitCard({ item, onPress }: { item: MediaItem; onPress: () => void 
 }
 
 // ─── Landscape Card ──────────────────────────────────────────────────────────────
-function LandscapeCard({ item, onPress }: { item: MediaItem; onPress: () => void }) {
-  const accent   = TYPE_COLOR[item.type];
-  const gradPair = TYPE_GRADIENT[item.type];
-  const tracker  = useTracker();
-  const entry    = tracker.getEntry(String(item.id), item.type);
-  const raw      = item.raw as RawItem;
-  const isAiring = item.type === "anime" && raw?.status === "RELEASING" && Boolean(raw?.nextAiringEpisode?.episode);
-  const now      = useNow(isAiring);
+function LandscapeCard({ item, onPress, activeFilter }: { item: MediaItem; onPress: () => void; activeFilter?: string; }) {
+  const mediaId   = String((item as any).mediaId ?? item.id);
+  const accent    = TYPE_COLOR[item.type];
+  const gradPair  = TYPE_GRADIENT[item.type];
+  const tracker   = useTracker();
+  const entry     = tracker.getEntry(mediaId, item.type);
+  const raw       = item.raw as RawItem;
+  const isAiring  = item.type === "anime" && raw?.status === "RELEASING" && Boolean(raw?.nextAiringEpisode?.episode);
+  const now       = useNow(isAiring);
   const countdown = getAnimeCountdown(item);
 
-  const liveCountdown = isAiring && raw?.nextAiringEpisode
-    ? formatCountdown(
-        raw.nextAiringEpisode.airingAt
-          ? Math.ceil(raw.nextAiringEpisode.airingAt - now / 1000)
-          : raw.nextAiringEpisode.timeUntilAiring,
-      )
-    : null;
+  const liveCountdown =
+    isAiring && raw?.nextAiringEpisode
+      ? formatCountdown(
+          raw.nextAiringEpisode.airingAt
+            ? Math.ceil(raw.nextAiringEpisode.airingAt - now / 1000)
+            : raw.nextAiringEpisode.timeUntilAiring,
+        )
+      : null;
 
-  const meta = item.episodes ? `${item.episodes} episodes` : item.chapters ? `${item.chapters} chapters` : "—";
+  const meta = item.episodes
+    ? `${item.episodes} episodes`
+    : item.chapters
+      ? `${item.chapters} chapters`
+      : "—";
 
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+const topRank = getBestRank(item.rankings, activeFilter);
+
+  const scaleAnim  = useRef(new Animated.Value(1)).current;
   const handlePressIn  = () => Animated.spring(scaleAnim, { toValue: 0.97, useNativeDriver: true, speed: 30 }).start();
   const handlePressOut = () => Animated.spring(scaleAnim, { toValue: 1,    useNativeDriver: true, speed: 24 }).start();
 
@@ -363,72 +480,80 @@ function LandscapeCard({ item, onPress }: { item: MediaItem; onPress: () => void
   return (
     <Pressable onPress={onPress} onPressIn={handlePressIn} onPressOut={handlePressOut}>
       <Animated.View style={[s.landscapeCard, { transform: [{ scale: scaleAnim }] }]}>
-
         {/* Thumbnail */}
         <View style={s.landscapeThumb}>
-          <Image source={{ uri: item.coverImage }} style={StyleSheet.absoluteFillObject} contentFit="cover" transition={250} />
-          {/* Accent left bar via gradient */}
-          <LinearGradient colors={gradPair} style={s.landscapeBar} start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }} />
-          {/* Slight right edge fade into card */}
-          <LinearGradient colors={["transparent", "rgba(19,19,42,0.55)"]} style={StyleSheet.absoluteFillObject} start={{ x: 0.5, y: 0 }} end={{ x: 1, y: 0 }} />
+          <Image
+            source={{ uri: item.coverImage }}
+            style={StyleSheet.absoluteFillObject}
+            contentFit="cover"
+            transition={250}
+          />
+          <LinearGradient
+            colors={gradPair}
+            style={s.landscapeBar}
+            start={{ x: 0, y: 0 }} end={{ x: 0, y: 1 }}
+          />
+          <LinearGradient
+            colors={["transparent", "rgba(19,19,42,0.55)"]}
+            style={StyleSheet.absoluteFillObject}
+            start={{ x: 0.5, y: 0 }} end={{ x: 1, y: 0 }}
+          />
         </View>
 
         {/* Body */}
         <View style={s.landscapeBody}>
-          {/* Top row: type label + score */}
           <View style={s.landscapeTopRow}>
-            <View style={[s.landscapeTypePill, { backgroundColor: accent + "22", borderColor: accent + "55" }]}>
-              <Text style={[s.landscapeTypeText, { color: accent }]}>{TYPE_LABEL[item.type]}</Text>
-            </View>
+            <TypePill type={item.type} />
             {item.score != null && (
               <View style={s.landscapeScoreRow}>
                 <Text style={s.landscapeScoreStar}>★</Text>
-                <Text style={[s.landscapeScoreVal, { color: accent }]}>{formatRating(item.score)}</Text>
+                <Text style={[s.landscapeScoreVal, { color: accent }]}>
+                  {formatRating(item.score)}
+                </Text>
               </View>
             )}
           </View>
 
           <Marquee textStyle={s.landscapeTitle}>{item.title}</Marquee>
-
           <Text style={s.landscapeMeta}>{meta}</Text>
 
-          {/* Release / countdown */}
           {countdown?.releaseLabel && (
             <View style={s.releaseRow}>
               <View style={[s.releaseDot, { backgroundColor: countdown.releaseColor ?? "#fff" }]} />
-              <Text style={[s.releaseText, { color: countdown.releaseColor ?? "rgba(255,255,255,0.65)" }]} numberOfLines={1}>
-                {countdown.releaseLabel}{liveCountdown ? ` · ${liveCountdown}` : ""}
+              <Text
+                style={[s.releaseText, { color: countdown.releaseColor ?? "rgba(255,255,255,0.65)" }]}
+                numberOfLines={1}
+              >
+                {countdown.releaseLabel}
+                {liveCountdown ? ` · ${liveCountdown}` : ""}
               </Text>
             </View>
           )}
 
-          {/* Progress + status */}
           {entry && (
             <View style={s.landscapeProgressRow}>
-              {statusColor && (
-                <View style={[s.landscapeStatusDot, { backgroundColor: statusColor }]} />
-              )}
+              {statusColor && <View style={[s.landscapeStatusDot, { backgroundColor: statusColor }]} />}
               <Text style={s.landscapeProgressText} numberOfLines={1}>
                 {entry.status}
                 {entry.totalProgress
-                  ? ` · ${entry.progress}/${entry.totalProgress}`
-                  : entry.progress > 0 ? ` · ${entry.progress}` : ""}
-                {entry.rewatches > 0 ? ` · ×${entry.rewatches}` : ""}
+                  ? ` · ${entry.progress ?? 0}/${entry.totalProgress}`
+                  : (entry.progress ?? 0) > 0
+                    ? ` · ${entry.progress}`
+                    : ""}
+                {(entry.rewatches ?? 0) > 0 ? ` · ×${entry.rewatches}` : ""}
               </Text>
             </View>
           )}
 
           {item.genres && item.genres.length > 0 && (
-  <Marquee textStyle={s.genreText}>
-    {item.genres.slice(0, 3).join(" · ")}
-  </Marquee>
-)}
+            <Marquee textStyle={s.genreText}>{item.genres.slice(0, 3).join(" · ")}</Marquee>
+          )}
         </View>
 
-        {/* Rank badge — top-right corner */}
-        {item.rankings?.[0] && (
+        {/* Rank badge — top-right, now using improved RankBadge */}
+        {topRank && (
           <View style={s.landscapeRank}>
-            <RankBadge rank={item.rankings[0].rank} />
+           
           </View>
         )}
       </Animated.View>
@@ -437,21 +562,31 @@ function LandscapeCard({ item, onPress }: { item: MediaItem; onPress: () => void
 }
 
 // ─── Export ──────────────────────────────────────────────────────────────────────
-export default function MediaCard({ item, variant = "portrait", style, onPress }: MediaCardProps) {
-  const router = useRouter();
+export default function MediaCard({
+  item,
+  variant = "portrait",
+  style,
+  onPress,
+  activeFilter,
+}: MediaCardProps) {
+  const router  = useRouter();
+  const mediaId = String((item as any).mediaId ?? item.id);
+
   const handlePress = () => {
     if (onPress) { onPress(item); return; }
     router.push({
       pathname: "/modal",
-      params: { id: String(item.id), type: item.type, title: item.title, cover: item.coverImage },
+      params: { id: mediaId, type: item.type, title: item.title, cover: item.coverImage },
     });
   };
+
   return (
     <View style={style}>
-      {variant === "portrait"
-        ? <PortraitCard item={item} onPress={handlePress} />
-        : <LandscapeCard item={item} onPress={handlePress} />
-      }
+      {variant === "portrait" ? (
+        <PortraitCard item={item} onPress={handlePress} activeFilter={activeFilter} />
+      ) : (
+        <LandscapeCard item={item} onPress={handlePress} activeFilter={activeFilter} />
+      )}
     </View>
   );
 }
@@ -459,39 +594,120 @@ export default function MediaCard({ item, variant = "portrait", style, onPress }
 // ─── Styles ───────────────────────────────────────────────────────────────────
 const s = StyleSheet.create({
   // Portrait
-  portraitCard:   { borderRadius: 16, overflow: "hidden", backgroundColor: "#12122A" },
-  typePill:       { position: "absolute", top: 10, left: 10, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, borderWidth: 1 },
-  typePillText:   { fontSize: 9, fontWeight: "800", letterSpacing: 0.8 },
-  topRight:       { position: "absolute", top: 10, right: 10, alignItems: "flex-end", gap: 5 },
-  statusPill:     { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 7, paddingVertical: 3, borderRadius: 7, borderWidth: 1 },
-  statusDot:      { width: 5, height: 5, borderRadius: 3 },
-  statusText:     { fontSize: 9, fontWeight: "700", letterSpacing: 0.3 },
-  portraitBottom: { position: "absolute", bottom: 0, left: 0, right: 0, padding: 11, gap: 3 },
-  portraitTitle:  { color: "#fff", fontSize: 13, fontWeight: "700", lineHeight: 17 },
-  portraitMeta:   { color: "rgba(255,255,255,0.45)", fontSize: 10 },
+  portraitCard: {
+    borderRadius: 16,
+    overflow: "hidden",
+    backgroundColor: "#12122A",
+  },
+
+  // Type pill
+  typePill: {
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  typePillText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.9,
+  },
+  typePillWrap: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+  },
+
+  topRight: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    alignItems: "flex-end",
+    gap: 5,
+  },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+     paddingHorizontal: 8,   // was 7
+  paddingVertical: 4,      // was 3
+  borderRadius: 8,         // was 7
+  borderWidth: 1.5, 
+  overflow: "hidden", 
+  },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },  // was 5x5
+statusText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },  
+
+  portraitBottom: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 11,
+    gap: 3,
+  },
+  portraitTitle: {
+    color: "#fff",
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 17,
+  },
+  portraitMeta: { color: "rgba(255,255,255,0.45)", fontSize: 10 },
 
   // Landscape
-  landscapeCard:      { flexDirection: "row", backgroundColor: "#13132A", borderRadius: 16, overflow: "hidden", marginBottom: 10, height: 112, borderWidth: 1, borderColor: "rgba(255,255,255,0.06)" },
-  landscapeThumb:     { width: 78, height: 112, position: "relative" },
-  landscapeBar:       { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
-  landscapeBody:      { flex: 1, paddingHorizontal: 13, paddingVertical: 11, justifyContent: "center", gap: 3 },
-  landscapeTopRow:    { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 1 },
-  landscapeTypePill:  { paddingHorizontal: 7, paddingVertical: 2, borderRadius: 6, borderWidth: 1 },
-  landscapeTypeText:  { fontSize: 9, fontWeight: "800", letterSpacing: 0.7 },
-  landscapeScoreRow:  { flexDirection: "row", alignItems: "center", gap: 3 },
+  landscapeCard: {
+    flexDirection: "row",
+    backgroundColor: "#13132A",
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 10,
+    height: 112,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.06)",
+  },
+  landscapeThumb: { width: 78, height: 112, position: "relative" },
+  landscapeBar:   { position: "absolute", left: 0, top: 0, bottom: 0, width: 3 },
+  landscapeBody: {
+    flex: 1,
+    paddingHorizontal: 13,
+    paddingVertical: 11,
+    justifyContent: "center",
+    gap: 3,
+  },
+  landscapeTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 1,
+  },
+  landscapeScoreRow: { flexDirection: "row", alignItems: "center", gap: 3 },
   landscapeScoreStar: { color: "#FBBF24", fontSize: 10 },
   landscapeScoreVal:  { fontSize: 11, fontWeight: "800" },
-  landscapeTitle:     { color: "#fff", fontSize: 14, fontWeight: "700", lineHeight: 19 },
-  landscapeMeta:      { color: "rgba(255,255,255,0.4)", fontSize: 11 },
-  landscapeProgressRow:{ flexDirection: "row", alignItems: "center", gap: 5 },
+  landscapeTitle: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+    lineHeight: 19,
+  },
+  landscapeMeta: { color: "rgba(255,255,255,0.4)", fontSize: 11 },
+  landscapeProgressRow: { flexDirection: "row", alignItems: "center", gap: 5 },
   landscapeStatusDot: { width: 5, height: 5, borderRadius: 3 },
-  landscapeProgressText:{ color: "rgba(255,255,255,0.55)", fontSize: 10, fontWeight: "600", flex: 1 },
-  landscapeRank:      { position: "absolute", top: 8, right: 10 },
+  landscapeProgressText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    fontWeight: "600",
+    flex: 1,
+  },
+  landscapeRank: { position: "absolute", top: 8, right: 10 },
 
   // Shared
-  releaseRow:  { flexDirection: "row", alignItems: "center", gap: 4 },
-  releaseDot:  { width: 5, height: 5, borderRadius: 3 },
+  releaseRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  releaseDot: { width: 5, height: 5, borderRadius: 3 },
   releaseText: { fontSize: 10, fontWeight: "700" },
-  progressText:{ color: "rgba(255,255,255,0.55)", fontSize: 10, fontWeight: "600" },
-  genreText:   { color: "rgba(255,255,255,0.27)", fontSize: 10 },
+  progressText: {
+    color: "rgba(255,255,255,0.55)",
+    fontSize: 10,
+    fontWeight: "600",
+  },
+  genreText: { color: "rgba(255,255,255,0.27)", fontSize: 10 },
 });

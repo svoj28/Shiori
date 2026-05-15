@@ -397,7 +397,7 @@ const s = StyleSheet.create({
     alignItems: "flex-start",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingTop: 8,
+    paddingTop: 70,
     paddingBottom: 14,
   },
   eyebrow: {

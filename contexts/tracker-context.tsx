@@ -1,451 +1,562 @@
-import type { MediaItem, MediaType } from "@/components/MediaCard";
-import * as SecureStore from "expo-secure-store";
+/**
+ * tracker-context.tsx  — Supabase-synced version
+ *
+ * Drop-in replacement for the original local-only tracker context.
+ * All mutations optimistically update local state, then sync to Supabase.
+ * On mount, data is loaded from Supabase if the user is logged in.
+ */
+
+import { supabase } from "@/lib/supabase";
 import React, {
-    createContext,
-    useContext,
-    useEffect,
-    useMemo,
-    useState,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useState,
 } from "react";
+import { useAuth } from "./auth-context";
+
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export type TrackerStatus =
   | "None"
+  | "Watching"
   | "Completed"
   | "Rewatching"
-  | "Watching"
   | "Planning"
   | "Considering"
   | "Paused";
 
-export const TRACKER_STATUSES: TrackerStatus[] = [
-  "None",
+export const TRACKER_STATUSES_DISPLAY: TrackerStatus[] = [
+  "Watching",
   "Completed",
   "Rewatching",
-  "Watching",
   "Planning",
   "Considering",
   "Paused",
 ];
 
-export const TRACKER_STATUSES_DISPLAY: Exclude<TrackerStatus, "None">[] = [
-  "Completed",
-  "Rewatching",
-  "Watching",
-  "Planning",
-  "Considering",
-  "Paused",
-];
-
-export const STATUS_COMPLETED = "Completed" as const;
-export const STATUS_REWATCHING = "Rewatching" as const;
-export const STATUS_WATCHING = "Watching" as const;
-export const STATUS_PLANNING = "Planning" as const;
-export const STATUS_CONSIDERING = "Considering" as const;
-export const STATUS_PAUSED = "Paused" as const;
-export const STATUS_NONE = "None" as const;
-
-export type TrackerEntry = {
-  id: string;
-  type: MediaType;
+export interface TrackerEntry {
+  id: string; // local uuid (matches DB id)
+  type: "anime" | "manga" | "lightnovel";
+  mediaId: string; // provider-side id
   title: string;
-  coverImage: string;
+  posterUrl?: string;
+  coverImage: string; // alias for posterUrl for MediaItem compatibility (required)
   status: TrackerStatus;
-  wishlist: boolean;
-  collections: string[];
-  progress: number;
-  totalProgress: number | null;
-  rewatches: number;
-  updatedAt: number;
-};
+  score?: number;
+  progress?: number;
+  totalProgress?: number; // total episodes/chapters
+  rewatches?: number; // number of times rewatched/reread
+  isWishlist: boolean;
+  wishlist?: boolean; // backwards compatibility alias used by older screens
+  collections?: string[]; // computed convenience field for older screens
+  notes?: string;
+}
 
-type TrackerEntryInput = Pick<
-  MediaItem,
-  "id" | "title" | "coverImage" | "type"
-> & {
+type LegacyModalPayload = {
+  id: string;
+  type: TrackerEntry["type"];
+  title: string;
+  coverImage?: string;
   totalProgress?: number | null;
 };
 
-type TrackerState = {
-  entries: Record<string, TrackerEntry>;
-  collectionNames: string[];
+export interface Collection {
+  id: string;
+  name: string;
+  items: TrackerEntry[];
+}
+
+type TrackerEntryView = TrackerEntry & {
+  wishlist: boolean;
+  collections: string[];
 };
 
-type TrackerContextValue = {
+interface TrackerContextValue {
   entries: TrackerEntry[];
+  collections: Collection[];
   wishlistEntries: TrackerEntry[];
-  collections: { name: string; items: TrackerEntry[] }[];
-  statusCounts: Record<TrackerStatus, number>;
   totalTracked: number;
-  ready: boolean;
-  upsertEntry: (item: TrackerEntryInput) => TrackerEntry;
+  statusCounts: Record<TrackerStatus, number>;
+
+  // Entry CRUD
+  upsertEntry: (
+    entry: (Omit<TrackerEntry, "id"> & { id?: string }) | LegacyModalPayload,
+  ) => Promise<TrackerEntry | undefined>;
+  removeEntry: (entryId: string) => Promise<void>;
+  removeEntries: (entryIds: string[]) => Promise<void>;
+  setWishlist: (entryId: string, value: boolean) => Promise<void>;
+  getEntry: (
+    mediaId: string,
+    type: TrackerEntry["type"],
+  ) => TrackerEntryView | undefined;
   mutateEntry: (
-    item: TrackerEntryInput,
-    recipe: (entry: TrackerEntry) => TrackerEntry,
-  ) => void;
-  removeEntry: (id: string, type: MediaType) => void;
-  setStatus: (id: string, type: MediaType, status: TrackerStatus) => void;
-  setWishlist: (id: string, type: MediaType, wishlist: boolean) => void;
-  toggleWishlist: (item: TrackerEntryInput) => void;
-  setCollections: (id: string, type: MediaType, collections: string[]) => void;
-  addCollection: (item: TrackerEntryInput, collection: string) => void;
-  removeCollection: (id: string, type: MediaType, collection: string) => void;
-  setProgress: (
-    id: string,
-    type: MediaType,
-    progress: number,
-    totalProgress?: number | null,
-  ) => void;
-  setRewatches: (id: string, type: MediaType, rewatches: number) => void;
-  getEntry: (id: string, type: MediaType) => TrackerEntry | undefined;
-  createCollection: (name: string) => void;
-  deleteCollection: (name: string) => void;
-};
+    payload: LegacyModalPayload,
+    recipe: (current: TrackerEntryView) => TrackerEntryView,
+  ) => Promise<void>;
 
-const STORAGE_KEY = "shiori.tracker.v1";
-const TrackerContext = createContext<TrackerContextValue | null>(null);
+  // Collection CRUD
+  createCollection: (name: string) => Promise<void>;
+  deleteCollection: (name: string) => Promise<void>;
+  addToCollection: (collectionName: string, entryId: string) => Promise<void>;
+  removeFromCollection: (
+    collectionName: string,
+    entryId: string,
+  ) => Promise<void>;
 
-function makeKey(id: string | number, type: MediaType) {
-  return `${type}:${String(id)}`;
+  loading: boolean;
 }
 
-function clampInt(value: number, fallback = 0) {
-  return Number.isFinite(value) ? Math.max(0, Math.floor(value)) : fallback;
-}
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function normaliseCollections(collections: string[]) {
-  return Array.from(
-    new Set(collections.map((collection) => collection.trim()).filter(Boolean)),
-  );
-}
-
-function createEntry(item: TrackerEntryInput): TrackerEntry {
+function toLocal(row: any): TrackerEntry {
+  const posterUrl = row.poster_url ?? "";
   return {
-    id: String(item.id),
-    type: item.type,
-    title: item.title,
-    coverImage: item.coverImage,
+    id: row.id,
+    type: row.media_type as TrackerEntry["type"],
+    mediaId: row.media_id,
+    title: row.title,
+    posterUrl: posterUrl || undefined,
+    coverImage: posterUrl, // alias for MediaItem compatibility (required)
+    status: row.status as TrackerStatus,
+    score: row.score ?? undefined,
+    progress: row.progress ?? undefined,
+    totalProgress: row.total_progress ?? undefined,
+    rewatches: row.rewatches ?? undefined,
+    isWishlist: row.is_wishlist ?? false,
+    wishlist: row.is_wishlist ?? false,
+    notes: row.notes ?? undefined,
+  };
+}
+
+function normalizeUpsertInput(
+  entry: (Omit<TrackerEntry, "id"> & { id?: string }) | LegacyModalPayload,
+): Omit<TrackerEntry, "id"> {
+  if ("mediaId" in entry) {
+    return {
+      ...entry,
+      coverImage: entry.coverImage ?? entry.posterUrl ?? "",
+      isWishlist: entry.isWishlist ?? false,
+      wishlist: entry.wishlist ?? entry.isWishlist ?? false,
+      collections: entry.collections ?? [],
+    };
+  }
+
+  const cover = entry.coverImage ?? "";
+  return {
+    type: entry.type,
+    mediaId: entry.id,
+    title: entry.title,
+    posterUrl: cover || undefined,
+    coverImage: cover,
     status: "None",
+    score: undefined,
+    progress: 0,
+    totalProgress: entry.totalProgress ?? undefined,
+    rewatches: 0,
+    isWishlist: false,
     wishlist: false,
     collections: [],
-    progress: 0,
-    totalProgress: item.totalProgress ?? null,
-    rewatches: 0,
-    updatedAt: Date.now(),
+    notes: undefined,
   };
 }
 
-function mergeEntry(
-  entry: TrackerEntry | undefined,
-  item: TrackerEntryInput,
-): TrackerEntry {
-  const base = entry ?? createEntry(item);
+function toDbRow(entry: Omit<TrackerEntry, "id">, userId: string) {
   return {
-    ...base,
-    title: item.title,
-    coverImage: item.coverImage,
-    totalProgress: item.totalProgress ?? base.totalProgress,
-    updatedAt: Date.now(),
+    user_id: userId,
+    media_id: entry.mediaId,
+    media_type: entry.type,
+    title: entry.title,
+    poster_url: entry.posterUrl ?? null,
+    status: entry.status,
+    score: entry.score ?? null,
+    progress: entry.progress ?? null,
+    is_wishlist: entry.isWishlist,
+    notes: entry.notes ?? null,
+    total_progress: entry.totalProgress ?? null,
+    rewatches: entry.rewatches ?? null,
   };
 }
 
-function toStatusCounts(entries: TrackerEntry[]) {
-  return TRACKER_STATUSES.reduce(
-    (acc, status) => {
-      acc[status] = entries.filter((entry) => entry.status === status).length;
+// ─── Context ──────────────────────────────────────────────────────────────────
+
+const TrackerContext = createContext<TrackerContextValue | null>(null);
+
+export function TrackerProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+
+  const [entries, setEntries] = useState<TrackerEntry[]>([]);
+  const [collections, setCollections] = useState<Collection[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  // ── Derived ───────────────────────────────────────────────────────────────
+  const wishlistEntries = entries.filter((e) => e.isWishlist);
+  const totalTracked = entries.filter((e) => e.status !== "None").length;
+
+  const statusCounts = TRACKER_STATUSES_DISPLAY.reduce(
+    (acc, s) => {
+      acc[s] = entries.filter((e) => e.status === s).length;
       return acc;
     },
     {} as Record<TrackerStatus, number>,
   );
-}
 
-function buildCollections(entries: TrackerEntry[], storedNames: string[] = []) {
-  const names = Array.from(
-    new Set([...storedNames, ...entries.flatMap((entry) => entry.collections)]),
-  ).sort((left, right) => left.localeCompare(right));
+  // ── Load from Supabase ────────────────────────────────────────────────────
+  const loadData = useCallback(async () => {
+    if (!user) {
+      setEntries([]);
+      setCollections([]);
+      return;
+    }
+    setLoading(true);
 
-  return names.map((name) => ({
-    name,
-    items: entries.filter((entry) => entry.collections.includes(name)),
-  }));
-}
+    // Entries
+    const { data: eRows } = await supabase
+      .from("tracker_entries")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("updated_at", { ascending: false });
 
-export function TrackerProvider({ children }: { children: React.ReactNode }) {
-  const [state, setState] = useState<TrackerState>({
-    entries: {},
-    collectionNames: [],
-  });
-  const [ready, setReady] = useState(false);
+    const loadedEntries: TrackerEntry[] = (eRows ?? []).map(toLocal);
+    setEntries(loadedEntries);
 
-  useEffect(() => {
-    let active = true;
+    // Collections + items
+    const { data: cRows } = await supabase
+      .from("collections")
+      .select("id, name, collection_items(entry_id)")
+      .eq("user_id", user.id)
+      .order("created_at");
 
-    SecureStore.getItemAsync(STORAGE_KEY)
-      .then((raw) => {
-        if (!active || !raw) {
-          setReady(true);
-          return;
-        }
+    const entryMap = Object.fromEntries(loadedEntries.map((e) => [e.id, e]));
 
-        try {
-          const parsed = JSON.parse(raw) as Partial<TrackerState>;
-          if (parsed?.entries && typeof parsed.entries === "object") {
-            setState({
-              entries: parsed.entries as Record<string, TrackerEntry>,
-              collectionNames: Array.isArray(parsed.collectionNames)
-                ? parsed.collectionNames
-                : [],
-            });
-          }
-        } catch {
-          // Ignore malformed persistence and start clean.
-        }
-      })
-      .finally(() => {
-        if (active) setReady(true);
-      });
+    const loadedCols: Collection[] = (cRows ?? []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      items: (c.collection_items ?? [])
+        .map((ci: any) => entryMap[ci.entry_id])
+        .filter(Boolean),
+    }));
+    setCollections(loadedCols);
 
-    return () => {
-      active = false;
-    };
-  }, []);
+    setLoading(false);
+  }, [user]);
 
   useEffect(() => {
-    if (!ready) return;
+    loadData();
+  }, [loadData]);
 
-    SecureStore.setItemAsync(STORAGE_KEY, JSON.stringify(state)).catch(() => {
-      // Persistence is best-effort; the in-memory state still works.
-    });
-  }, [ready, state]);
+  // ── Entry CRUD ────────────────────────────────────────────────────────────
+  const upsertEntry = async (
+    entry: (Omit<TrackerEntry, "id"> & { id?: string }) | LegacyModalPayload,
+  ) => {
+    if (!user) return;
+    const activeUserId = user.id;
 
-  const actions = useMemo(() => {
-    const update = (
-      id: string,
-      type: MediaType,
-      recipe: (entry: TrackerEntry) => TrackerEntry,
-    ) => {
-      const key = makeKey(id, type);
-      setState((current) => {
-        const entry = current.entries[key];
-        if (!entry) return current;
-        return {
-          entries: {
-            ...current.entries,
-            [key]: recipe(entry),
+    const normalized = normalizeUpsertInput(entry);
+    const dbRowWithOptional = toDbRow(normalized, activeUserId);
+
+    let { data, error } = await supabase
+      .from("tracker_entries")
+      .upsert(dbRowWithOptional, { onConflict: "user_id,media_id" })
+      .select()
+      .single();
+
+    // Backward-compat for DBs that don't have optional columns yet.
+    if (error) {
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from("tracker_entries")
+        .upsert(
+          {
+            user_id: activeUserId,
+            media_id: normalized.mediaId,
+            media_type: normalized.type,
+            title: normalized.title,
+            poster_url: normalized.posterUrl ?? null,
+            status: normalized.status,
+            score: normalized.score ?? null,
+            progress: normalized.progress ?? null,
+            is_wishlist: normalized.isWishlist,
+            notes: normalized.notes ?? null,
           },
-        };
+          { onConflict: "user_id,media_id" },
+        )
+        .select()
+        .single();
+      data = fallbackData;
+      error = fallbackError;
+    }
+
+    if (!error && data) {
+      const local = toLocal(data);
+      setEntries((prev) => {
+        const idx = prev.findIndex(
+          (e) => e.id === local.id || e.mediaId === local.mediaId,
+        );
+        return idx >= 0
+          ? prev.map((e, i) => (i === idx ? local : e))
+          : [local, ...prev];
       });
-    };
+      return local;
+    }
 
-    return {
-      upsertEntry: (item: TrackerEntryInput) => {
-        const key = makeKey(item.id, item.type);
-        let created: TrackerEntry | null = null;
+    return undefined;
+  };
 
-        setState((current) => {
-          const entry = mergeEntry(current.entries[key], item);
-          created = entry;
-          return {
-            entries: {
-              ...current.entries,
-              [key]: entry,
-            },
-          };
-        });
+  const removeEntry = async (entryId: string) => {
+    if (!user) return;
+    await supabase
+      .from("tracker_entries")
+      .delete()
+      .eq("id", entryId)
+      .eq("user_id", user.id);
+    setEntries((prev) => prev.filter((e) => e.id !== entryId));
+    setCollections((prev) =>
+      prev.map((c) => ({
+        ...c,
+        items: c.items.filter((i) => i.id !== entryId),
+      })),
+    );
+  };
 
-        return created ?? createEntry(item);
-      },
-      mutateEntry: (
-        item: TrackerEntryInput,
-        recipe: (entry: TrackerEntry) => TrackerEntry,
-      ) => {
-        const key = makeKey(item.id, item.type);
-        setState((current) => {
-          const entry = mergeEntry(current.entries[key], item);
-          return {
-            entries: {
-              ...current.entries,
-              [key]: recipe(entry),
-            },
-          };
-        });
-      },
-      removeEntry: (id: string, type: MediaType) => {
-        const key = makeKey(id, type);
-        setState((current) => {
-          if (!current.entries[key]) return current;
-          const next = { ...current.entries };
-          delete next[key];
-          return { entries: next };
-        });
-      },
-      setStatus: (id: string, type: MediaType, status: TrackerStatus) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          status,
-          updatedAt: Date.now(),
-        }));
-      },
-      setWishlist: (id: string, type: MediaType, wishlist: boolean) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          wishlist,
-          updatedAt: Date.now(),
-        }));
-      },
-      toggleWishlist: (item: TrackerEntryInput) => {
-        const key = makeKey(item.id, item.type);
-        setState((current) => {
-          const entry = mergeEntry(current.entries[key], item);
-          const nextWishlist = !entry.wishlist;
-          return {
-            entries: {
-              ...current.entries,
-              [key]: {
-                ...entry,
-                wishlist: nextWishlist,
-                status:
-                  nextWishlist && entry.status === "Planning"
-                    ? "Planning"
-                    : entry.status,
-                updatedAt: Date.now(),
-              },
-            },
-          };
-        });
-      },
-      setCollections: (id: string, type: MediaType, collections: string[]) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          collections: normaliseCollections(collections),
-          updatedAt: Date.now(),
-        }));
-      },
-      addCollection: (item: TrackerEntryInput, collection: string) => {
-        const name = collection.trim();
-        if (!name) return;
+  const setWishlist = async (entryId: string, value: boolean) => {
+    if (!user) return;
+    await supabase
+      .from("tracker_entries")
+      .update({ is_wishlist: value })
+      .eq("id", entryId)
+      .eq("user_id", user.id);
+    setEntries((prev) =>
+      prev.map((e) => (e.id === entryId ? { ...e, isWishlist: value } : e)),
+    );
+  };
 
-        const key = makeKey(item.id, item.type);
-        setState((current) => {
-          const entry = mergeEntry(current.entries[key], item);
-          const collections = normaliseCollections([
-            ...entry.collections,
-            name,
-          ]);
-          return {
-            entries: {
-              ...current.entries,
-              [key]: {
-                ...entry,
-                collections,
-                updatedAt: Date.now(),
-              },
-            },
-          };
-        });
-      },
-      removeCollection: (id: string, type: MediaType, collection: string) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          collections: entry.collections.filter((item) => item !== collection),
-          updatedAt: Date.now(),
-        }));
-      },
-      setProgress: (
-        id: string,
-        type: MediaType,
-        progress: number,
-        totalProgress?: number | null,
-      ) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          progress:
-            totalProgress != null
-              ? Math.min(totalProgress, clampInt(progress, entry.progress))
-              : clampInt(progress, entry.progress),
-          totalProgress: totalProgress ?? entry.totalProgress,
-          updatedAt: Date.now(),
-        }));
-      },
-      setRewatches: (id: string, type: MediaType, rewatches: number) => {
-        update(id, type, (entry) => ({
-          ...entry,
-          rewatches: clampInt(rewatches, entry.rewatches),
-          updatedAt: Date.now(),
-        }));
-      },
-      createCollection: (name: string) => {
-        const trimmed = name.trim();
-        if (!trimmed) return;
+  // ── Collection CRUD ───────────────────────────────────────────────────────
+  const createCollection = async (name: string) => {
+    if (!user) return;
+    const { data, error } = await supabase
+      .from("collections")
+      .insert({ user_id: user.id, name })
+      .select()
+      .single();
+    if (!error && data) {
+      setCollections((prev) => [
+        ...prev,
+        { id: data.id, name: data.name, items: [] },
+      ]);
+    }
+  };
 
-        setState((current) => {
-          // Avoid duplicates
-          if (current.collectionNames.includes(trimmed)) return current;
-          return {
-            ...current,
-            collectionNames: [...current.collectionNames, trimmed].sort(
-              (left, right) => left.localeCompare(right),
-            ),
-          };
-        });
-      },
-      deleteCollection: (name: string) => {
-        // Remove the collection from collectionNames and all entries
-        setState((current) => {
-          const entries = Object.entries(current.entries).reduce(
-            (acc, [key, entry]) => {
-              acc[key] = {
-                ...entry,
-                collections: entry.collections.filter((c) => c !== name),
-                updatedAt: Date.now(),
-              };
-              return acc;
-            },
-            {} as Record<string, TrackerEntry>,
-          );
-          return {
-            entries,
-            collectionNames: current.collectionNames.filter((c) => c !== name),
-          };
-        });
-      },
-    };
-  }, []);
+  const deleteCollection = async (name: string) => {
+    if (!user) return;
+    const col = collections.find((c) => c.name === name);
+    if (!col) return;
+    await supabase
+      .from("collections")
+      .delete()
+      .eq("id", col.id)
+      .eq("user_id", user.id);
+    setCollections((prev) => prev.filter((c) => c.name !== name));
+  };
 
-  const entries = useMemo(
-    () =>
-      Object.values(state.entries).sort(
-        (left, right) => right.updatedAt - left.updatedAt,
+  const addToCollection = async (collectionName: string, entryId: string) => {
+    if (!user) return;
+    const col = collections.find((c) => c.name === collectionName);
+    if (!col) return;
+    await supabase
+      .from("collection_items")
+      .insert({ collection_id: col.id, entry_id: entryId });
+    const entry = entries.find((e) => e.id === entryId);
+    if (!entry) return;
+    setCollections((prev) =>
+      prev.map((c) =>
+        c.id === col.id ? { ...c, items: [...c.items, entry] } : c,
       ),
-    [state.entries],
-  );
+    );
+  };
 
-  const value = useMemo<TrackerContextValue>(() => {
-    const wishlistEntries = entries.filter((entry) => entry.wishlist);
-    const collections = buildCollections(entries, state.collectionNames);
-    const statusCounts = toStatusCounts(entries);
+  const removeFromCollection = async (
+    collectionName: string,
+    entryId: string,
+  ) => {
+    if (!user) return;
+    const col = collections.find((c) => c.name === collectionName);
+    if (!col) return;
+    await supabase
+      .from("collection_items")
+      .delete()
+      .eq("collection_id", col.id)
+      .eq("entry_id", entryId);
+    setCollections((prev) =>
+      prev.map((c) =>
+        c.id === col.id
+          ? { ...c, items: c.items.filter((i) => i.id !== entryId) }
+          : c,
+      ),
+    );
+  };
 
+  const getEntry = (mediaId: string, type: TrackerEntry["type"]) => {
+    const found = entries.find((e) => e.mediaId === mediaId && e.type === type);
+    if (!found) return undefined;
+    const entryCollections = collections
+      .filter((c) => c.items.some((i) => i.id === found.id))
+      .map((c) => c.name);
     return {
-      entries,
-      wishlistEntries,
-      collections,
-      statusCounts,
-      totalTracked: entries.length,
-      ready,
-      ...actions,
-      getEntry: (id: string, type: MediaType) =>
-        state.entries[makeKey(id, type)],
-    };
-  }, [actions, entries, ready, state.entries, state.collectionNames]);
+      ...found,
+      wishlist: found.isWishlist,
+      collections: entryCollections,
+    } as TrackerEntryView;
+  };
+
+  const mutateEntry = async (
+    payload: LegacyModalPayload,
+    recipe: (current: TrackerEntryView) => TrackerEntryView,
+  ) => {
+    const activeUserId = user?.id;
+    if (!activeUserId) return;
+
+    const current =
+      getEntry(payload.id, payload.type) ??
+      ({
+        id: "",
+        type: payload.type,
+        mediaId: payload.id,
+        title: payload.title,
+        posterUrl: payload.coverImage,
+        coverImage: payload.coverImage ?? "",
+        status: "None",
+        progress: 0,
+        totalProgress: payload.totalProgress ?? undefined,
+        rewatches: 0,
+        isWishlist: false,
+        wishlist: false,
+        collections: [],
+      } as TrackerEntryView);
+
+    const next = recipe(current);
+
+    const row = toDbRow(
+      {
+        ...next,
+        mediaId: next.mediaId || payload.id,
+        type: next.type || payload.type,
+        title: next.title || payload.title,
+        posterUrl: next.posterUrl ?? next.coverImage ?? payload.coverImage,
+        coverImage: next.coverImage ?? payload.coverImage ?? "",
+        isWishlist: next.wishlist ?? next.isWishlist ?? false,
+        totalProgress: next.totalProgress ?? payload.totalProgress ?? undefined,
+      },
+      activeUserId,
+    );
+
+    let target: TrackerEntryView | undefined = getEntry(
+      payload.id,
+      payload.type,
+    );
+
+    if (target?.id) {
+      const { data, error } = await supabase
+        .from("tracker_entries")
+        .update(row)
+        .eq("id", target.id)
+        .eq("user_id", activeUserId)
+        .select()
+        .single();
+
+      if (error) {
+        const { total_progress, rewatches, ...baseRow } = row as any;
+        const { data: fallbackData, error: fallbackError } = await supabase
+          .from("tracker_entries")
+          .update(baseRow)
+          .eq("id", target.id)
+          .eq("user_id", activeUserId)
+          .select()
+          .single();
+        if (!fallbackError && fallbackData) {
+          const local = toLocal(fallbackData) as TrackerEntryView;
+          setEntries((prev) =>
+            prev.map((e) => (e.id === local.id ? local : e)),
+          );
+          target = local;
+        }
+      }
+
+      if (!error && data) {
+        const local = toLocal(data) as TrackerEntryView;
+        setEntries((prev) => prev.map((e) => (e.id === local.id ? local : e)));
+        target = local;
+      }
+    } else {
+      const saved = await upsertEntry({
+        ...next,
+        mediaId: next.mediaId || payload.id,
+        type: next.type || payload.type,
+        title: next.title || payload.title,
+        posterUrl: next.posterUrl ?? next.coverImage ?? payload.coverImage,
+        coverImage: next.coverImage ?? payload.coverImage ?? "",
+        isWishlist: next.wishlist ?? next.isWishlist ?? false,
+        totalProgress: next.totalProgress ?? payload.totalProgress ?? undefined,
+      });
+      target = (saved ?? getEntry(payload.id, payload.type)) as
+        | TrackerEntryView
+        | undefined;
+    }
+
+    if (!target?.id) return;
+
+    const before = current.collections ?? [];
+    const after = next.collections ?? [];
+    const toAdd = after.filter((name) => !before.includes(name));
+    const toRemove = before.filter((name) => !after.includes(name));
+
+    for (const name of toAdd) {
+      if (!collections.some((c) => c.name === name)) {
+        await createCollection(name);
+      }
+      await addToCollection(name, target.id);
+    }
+
+    for (const name of toRemove) {
+      await removeFromCollection(name, target.id);
+    }
+  };
+
+  const removeEntries = async (entryIds: string[]) => {
+    const uniqueIds = Array.from(new Set(entryIds));
+    for (const entryId of uniqueIds) {
+      await removeEntry(entryId);
+    }
+  };
 
   return (
-    <TrackerContext.Provider value={value}>{children}</TrackerContext.Provider>
+    <TrackerContext.Provider
+      value={{
+        entries,
+        collections,
+        wishlistEntries,
+        totalTracked,
+        statusCounts,
+        upsertEntry,
+        removeEntry,
+        removeEntries,
+        setWishlist,
+        getEntry,
+        mutateEntry,
+        createCollection,
+        deleteCollection,
+        addToCollection,
+        removeFromCollection,
+        loading,
+      }}
+    >
+      {children}
+    </TrackerContext.Provider>
   );
 }
 
 export function useTracker() {
-  const value = useContext(TrackerContext);
-  if (!value) {
-    throw new Error("useTracker must be used within a TrackerProvider");
-  }
-  return value;
+  const ctx = useContext(TrackerContext);
+  if (!ctx) throw new Error("useTracker must be used inside <TrackerProvider>");
+  return ctx;
 }

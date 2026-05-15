@@ -223,6 +223,7 @@ export default function ExploreScreen() {
   const [genreLoading, setGenreLoading] = useState(false);
   const [randSpinning, setRandSpinning] = useState(false);
   const [randomized,   setRandomized]   = useState<MediaItem[] | null>(null);
+  const [randomizedGenre, setRandomizedGenre] = useState<string | null>(null);
 
   const debouncedQ = useDebounce(query, 400);
   const accent     = ACCENT[activeTab];
@@ -278,15 +279,45 @@ export default function ExploreScreen() {
     return () => { cancelled = true; };
   }, [selectedGenres, activeTab]);
 
-  const randomizeResults = useCallback(() => {
+  const randomizeResults = useCallback(async () => {
+  // If genres are selected or search results exist, shuffle those
+  if (selectedGenres.length > 0 || searchResults.length > 0) {
     const source = selectedGenres.length > 0 ? genreResults : searchResults;
     if (source.length === 0) return;
     setRandSpinning(true);
     setTimeout(() => setRandSpinning(false), 700);
     setRandomized([...source].sort(() => Math.random() - 0.5));
-  }, [genreResults, searchResults, selectedGenres.length]);
+    return;
+  }
 
-  useEffect(() => { setRandomized(null); }, [activeTab, debouncedQ, selectedGenres]);
+  // No genre selected, no search query — fetch from a random genre across all active types
+  const pool = GENRE_POOL[activeTab] as string[];
+  const randomGenre = pool[Math.floor(Math.random() * pool.length)];
+
+  setRandSpinning(true);
+  setGenreLoading(true);
+
+  try {
+    const fetches: Promise<MediaItem[]>[] = [];
+    if (needsAnime)
+      fetches.push(getByGenre("ANIME", [randomGenre]).then((items: any[]) => items.map((i) => normaliseAnilist(i, "anime"))));
+    if (needsManga)
+      fetches.push(getByGenre("MANGA", [randomGenre]).then((items: any[]) => items.map((i) => normaliseAnilistManga(i))));
+    if (needsLN)
+      fetches.push(getByGenre("MANGA", [randomGenre], "NOVEL").then((items: any[]) => items.map((i) => normaliseAnilistNovel(i))));
+
+    const chunks = await Promise.all(fetches);
+    const merged = chunks.flat();
+    setRandomized([...merged].sort(() => Math.random() - 0.5));
+  } catch (e) {
+    console.error("Random fetch failed:", e);
+  } finally {
+    setRandSpinning(false);
+    setGenreLoading(false);
+  }
+}, [genreResults, searchResults, selectedGenres, activeTab, needsAnime, needsManga, needsLN]);
+
+  useEffect(() => { setRandomized(null); setRandomizedGenre(null); }, [activeTab, debouncedQ, selectedGenres]);
 
   const results   = randomized ?? (selectedGenres.length > 0 ? genreResults : searchResults);
   const isLoading = selectedGenres.length > 0
@@ -444,7 +475,10 @@ export default function ExploreScreen() {
         <EmptyState query={debouncedQ} active={activeTab} genres={selectedGenres} />
       )}
 
-      <GenreResultHeader genres={selectedGenres} accent={accent} />
+      <GenreResultHeader
+        genres={selectedGenres.length > 0 ? selectedGenres : (randomizedGenre ? [randomizedGenre] : [])}
+        accent={accent}
+      />
     </>
   );
 
